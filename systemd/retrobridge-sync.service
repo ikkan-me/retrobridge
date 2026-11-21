@@ -1,0 +1,13 @@
+[Unit]
+Description=RetroBridge - local collection synchronization
+Documentation=https://github.com/ikkan-me/retrobridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Adjust the path to the real binary (or use `retrobridge setup --timer`).
+ExecStart=%h/.local/bin/retrobridge sync
+WorkingDirectory=%h
+# Optional: contains RETROBRIDGE_RPC_PASSWORD=... (the "-" ignores a missing file)
+EnvironmentFile=-%h/.config/retrobridge/rpc.env

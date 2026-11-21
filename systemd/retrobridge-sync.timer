@@ -1,0 +1,13 @@
+[Unit]
+Description=RetroBridge - periodic synchronization timer
+Documentation=https://github.com/ikkan-me/retrobridge
+
+[Timer]
+# Toutes les 10 minutes (0, 10, 20, ...)
+OnCalendar=*:0/10
+AccuracySec=1min
+Persistent=true
+Unit=retrobridge-sync.service
+
+[Install]
+WantedBy=timers.target

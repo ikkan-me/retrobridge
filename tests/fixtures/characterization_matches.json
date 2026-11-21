@@ -1,0 +1,422 @@
+[
+  {
+    "system": "ARCADE",
+    "title": "Asteroids",
+    "matched_file_name": "asteroid.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Baseball Stars 2",
+    "matched_file_name": "bstars2.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Blazing Star",
+    "matched_file_name": "blazstar.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Cadillacs and Dinosaurs",
+    "matched_file_name": "dino.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "D&D Shadow Over Mystara",
+    "matched_file_name": "ddsom.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Garou Mark of the Wolves",
+    "matched_file_name": "garou.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "In the hunt",
+    "matched_file_name": "inthunt.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Metal Slug",
+    "matched_file_name": "mslug.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Metal Slug 2",
+    "matched_file_name": "mslug2.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Metal Slug 3",
+    "matched_file_name": "mslug3.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Metal Slug 4",
+    "matched_file_name": "mslug4.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Metal Slug 5",
+    "matched_file_name": "mslug5.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Metal Slug X",
+    "matched_file_name": "mslugx.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Neo Turf Masters",
+    "matched_file_name": "turfmast.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Progear",
+    "matched_file_name": "progear.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Pulstar",
+    "matched_file_name": "pulstar.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Puzzle Bobble 2",
+    "matched_file_name": "pbobblen.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Samurai Shodown II",
+    "matched_file_name": "samsho2.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Sengoku 3",
+    "matched_file_name": "sengoku3.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Shock Troopers",
+    "matched_file_name": "shocktro.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Shock Troopers: 2nd Squad",
+    "matched_file_name": "shocktr2.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Street Hoop",
+    "matched_file_name": "strhoop.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Super Puzzle Fighter II Turbo",
+    "matched_file_name": "spf2t.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "The King of Fighters '98: The Slugfest",
+    "matched_file_name": "kof98.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "The Punisher",
+    "matched_file_name": "punisher.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "ARCADE",
+    "title": "Windjammers",
+    "matched_file_name": "wjammers.zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Capcom vs. SNK 2",
+    "matched_file_name": "Capcom vs. SNK 2 - Millionaire Fighting 2001 (Japan).zip",
+    "match_score": 600,
+    "match_lang_tag": "Japan 60Hz"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "ChuChu Rocket!",
+    "matched_file_name": "ChuChu Rocket! (Europe) (En,Ja,Fr,De,Es).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Crazy Taxi",
+    "matched_file_name": "Crazy Taxi (Europe) (En,Ja).zip",
+    "match_score": 400,
+    "match_lang_tag": "PAL"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Daytona USA 2001",
+    "matched_file_name": "Daytona USA 2001 (Europe) (En,Fr,De,Es).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Dead or Alive 2",
+    "matched_file_name": "Dead or Alive 2 (Europe).zip",
+    "match_score": 400,
+    "match_lang_tag": "PAL"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Deadly Skies",
+    "matched_file_name": "Deadly Skies (Europe) (En,Fr,De,Es,It).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Grandia II",
+    "matched_file_name": "Grandia II (Europe).zip",
+    "match_score": 400,
+    "match_lang_tag": "PAL"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Headhunter",
+    "matched_file_name": "Headhunter (Europe) (En,Fr,De,Es) (Disc 1).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Ikaruga",
+    "matched_file_name": "Ikaruga (Japan).zip",
+    "match_score": 600,
+    "match_lang_tag": "Japan 60Hz"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Jet Grind Radio",
+    "matched_file_name": "De La Jet Set Radio (Japan) (En,Ja,Fr,De,Es).zip",
+    "match_score": 700,
+    "match_lang_tag": "Japan 60Hz"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "JoJo's Bizarre Adventure",
+    "matched_file_name": "JoJo's Bizarre Adventure (Europe).zip",
+    "match_score": 400,
+    "match_lang_tag": "PAL"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Maken X",
+    "matched_file_name": "Maken X (Europe) (En,Fr,De,Es).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Marvel vs. Capcom 2: New Age of Heroes",
+    "matched_file_name": "Marvel vs. Capcom 2 - New Age of Heroes (Europe).zip",
+    "match_score": 400,
+    "match_lang_tag": "PAL"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Metropolis Street Racer",
+    "matched_file_name": "MSR - Metropolis Street Racer (Europe) (En,Fr,De,Es) (Rev A).zip",
+    "match_score": 520,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Phantasy Star Online Ver. 2",
+    "matched_file_name": "Phantasy Star Online Ver. 2 (Europe) (En,Ja,Fr,De,Es).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Power Stone 2",
+    "matched_file_name": "Power Stone 2 (Europe).zip",
+    "match_score": 400,
+    "match_lang_tag": "PAL"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Rayman 2: The Great Escape",
+    "matched_file_name": "Rayman 2 - The Great Escape (Europe) (En,Fr,De,Es,It).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Record of Lodoss War",
+    "matched_file_name": "Record of Lodoss War (France).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Resident Evil - Code: Veronica",
+    "matched_file_name": "Resident Evil - Code - Veronica (France) (Disc 1).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Rez",
+    "matched_file_name": "Rez (Europe) (En,Ja,Fr,De,Es,It).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Shenmue",
+    "matched_file_name": "Shenmue (Europe) (En,Fr,De,Es) (Disc 1).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Shenmue II",
+    "matched_file_name": "Shenmue II (Europe) (En,Fr,De,Es) (Disc 1).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Skies of Arcadia",
+    "matched_file_name": "Skies of Arcadia (Europe) (En,Fr,De,Es) (Disc 1).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Sonic Adventure",
+    "matched_file_name": "Sonic Adventure (Europe) (En,Ja,Fr,De,Es).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Sonic Adventure 2",
+    "matched_file_name": "Sonic Adventure 2 (Europe) (En,Ja,Fr,De,Es).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Soulcalibur",
+    "matched_file_name": "Soulcalibur (Europe) (En,Fr,De,Es).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Space Channel 5",
+    "matched_file_name": "Space Channel 5 (Europe) (En,Fr,De,Es).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Street Fighter III: 3rd Strike",
+    "matched_file_name": "Street Fighter III - 3rd Strike (Europe).zip",
+    "match_score": 400,
+    "match_lang_tag": "PAL"
+  },
+  {
+    "system": "DREAMCAST",
+    "title": "Virtua Tennis 2",
+    "matched_file_name": "Virtua Tennis 2 - Sega Professional Tennis (Europe) (En,Fr,De,Es).zip",
+    "match_score": 500,
+    "match_lang_tag": "PAL [FR]"
+  },
+  {
+    "system": "GB",
+    "title": "Avenging Spirit",
+    "matched_file_name": "Avenging Spirit (1992)(Jaleco).zip",
+    "match_score": 200,
+    "match_lang_tag": "Other"
+  },
+  {
+    "system": "GB",
+    "title": "Batman: Return of the Joker",
+    "matched_file_name": "Batman - Return of the Joker (1992)(Sunsoft)(EU-US).zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "GB",
+    "title": "Burger Time Deluxe",
+    "matched_file_name": "Burgertime Deluxe (1991)(Data East).zip",
+    "match_score": 200,
+    "match_lang_tag": "Other"
+  },
+  {
+    "system": "GB",
+    "title": "Castlevania II: Belmont's Revenge",
+    "matched_file_name": "Castlevania II - Belmont's Revenge (1991)(Konami)(EU-US).zip",
+    "match_score": 1000,
+    "match_lang_tag": "US 60Hz"
+  },
+  {
+    "system": "GB",
+    "title": "Donkey Kong",
+    "matched_file_name": "Donkey Kong Rev 1 (1994)(Nintendo)(EU-US).zip",
+    "match_score": 1020,
+    "match_lang_tag": "US 60Hz"
+  }
+]

@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=77.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "retrobridge"
+version = "2.0.0"
+description = "Bridge between game packs and retro gaming frontends"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "ikkan-me" }]
+keywords = ["retrogaming", "emulation", "roms", "transmission", "es-de", "knulli"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Games/Entertainment",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "pyyaml>=6.0",
+    "tomli-w>=1.0.0"
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "ruff>=0.5",
+]
+
+[project.urls]
+Homepage = "https://github.com/ikkan-me/retrobridge"
+Repository = "https://github.com/ikkan-me/retrobridge"
+Issues = "https://github.com/ikkan-me/retrobridge/issues"
+Changelog = "https://github.com/ikkan-me/retrobridge/blob/master/CHANGELOG.md"
+
+[project.scripts]
+retrobridge = "retrobridge.cli.user:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+retrobridge = [
+    "profiles/builtin/*.yaml"
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = ["E501"]
