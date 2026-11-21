@@ -1,0 +1,104 @@
+name: esde
+display_name: "ES-DE (EmulationStation Desktop Edition)"
+roms_subpath: "ROMs"
+bios_subpath: "BIOS"
+
+systems:
+  nes:
+    dir: "nes"
+    extensions: [".nes", ".zip", ".7z"]
+    export_format: "extract"
+    target_ext: ".nes"
+  snes:
+    dir: "snes"
+    extensions: [".sfc", ".smc", ".zip"]
+    export_format: "extract"
+    target_ext: ".sfc"
+  gb:
+    dir: "gb"
+    extensions: [".gb", ".zip"]
+    export_format: "extract"
+    target_ext: ".gb"
+  gbc:
+    dir: "gbc"
+    extensions: [".gbc", ".zip"]
+    export_format: "extract"
+    target_ext: ".gbc"
+  gba:
+    dir: "gba"
+    extensions: [".gba", ".zip"]
+    export_format: "extract"
+    target_ext: ".gba"
+  megadrive:
+    dir: "megadrive"
+    extensions: [".md", ".gen", ".smd", ".bin", ".zip"]
+    export_format: "extract"
+    target_ext: ".md"
+  mastersystem:
+    dir: "mastersystem"
+    extensions: [".sms", ".zip"]
+    export_format: "extract"
+    target_ext: ".sms"
+  gamegear:
+    dir: "gamegear"
+    extensions: [".gg", ".zip"]
+    export_format: "extract"
+    target_ext: ".gg"
+  pcengine:
+    dir: "pcengine"
+    extensions: [".pce", ".zip"]
+    export_format: "extract"
+    target_ext: ".pce"
+  n64:
+    dir: "n64"
+    extensions: [".z64", ".n64", ".v64", ".zip"]
+    export_format: "extract"
+    target_ext: ".z64"
+  nds:
+    dir: "nds"
+    extensions: [".nds", ".zip"]
+    export_format: "extract"
+    target_ext: ".nds"
+  arcade:
+    dir: "arcade"
+    extensions: [".zip", ".7z"]
+    export_format: "copy"
+    target_ext: ".zip"
+  psx:
+    dir: "psx"
+    extensions: [".chd", ".cue", ".iso", ".m3u", ".pbp"]
+    export_format: "chd"
+    target_ext: ".chd"
+    multidisc_m3u: true
+  saturn:
+    dir: "saturn"
+    extensions: [".chd", ".cue", ".iso", ".m3u"]
+    export_format: "chd"
+    target_ext: ".chd"
+    multidisc_m3u: true
+  dreamcast:
+    dir: "dreamcast"
+    extensions: [".chd", ".gdi", ".cdi", ".m3u"]
+    export_format: "chd"
+    target_ext: ".chd"
+    multidisc_m3u: true
+  ps2:
+    dir: "ps2"
+    extensions: [".chd", ".iso", ".gz"]
+    export_format: "chd"
+    target_ext: ".chd"
+  psp:
+    dir: "psp"
+    extensions: [".chd", ".iso", ".cso"]
+    export_format: "chd"
+    target_ext: ".chd"
+  gamecube:
+    dir: "gc"
+    extensions: [".rvz", ".iso", ".gcm"]
+    export_format: "rvz"
+    target_ext: ".rvz"
+  wii:
+    dir: "wii"
+    extensions: [".rvz", ".iso", ".wbfs"]
+    export_format: "rvz"
+    target_ext: ".rvz"

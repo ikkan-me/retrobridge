@@ -1,0 +1,30 @@
+# Environnements et caches Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# Secrets et configuration locale
+.env
+*.env
+config.toml
+rpc.env
+
+# Données utilisateur
+*.db
+*.sqlite
+*.sqlite3
+*.torrent
+
+# Outils et couverture
+.coverage
+htmlcov/
+.idea/
+.vscode/
+
+# Fichiers de verrouillage locaux
+*.lock
