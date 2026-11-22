@@ -416,9 +416,14 @@ def _rich_bar(percent: float, width: int = 8) -> Text:
     return text
 
 
-def _completion_cell(percent: float) -> Text:
-    cell = _rich_bar(percent, width=6)
-    cell.append(f"  {int(round(percent)):3d}%", style="green")
+def _download_cell(completed: int, total: int) -> Text:
+    """Download completion as a bar plus the `completed / total` fraction."""
+    if total <= 0:
+        return Text("—", style="dim")
+    percent = min(100.0, completed * 100.0 / total)
+    cell = _rich_bar(percent, width=8)
+    color = "green" if completed >= total else ("yellow" if completed else "dim")
+    cell.append(f" {completed}/{total}", style=color)
     return cell
 
 
@@ -597,30 +602,42 @@ def cmd_status(
     if not compact and status.get("systems"):
         table = Table(
             title=f"Per-system breakdown ({len(status['systems'])} systems configured)",
-            expand=True,
+            expand=False,
         )
         table.add_column("System", style="cyan bold", no_wrap=True, min_width=12)
         table.add_column("Total", justify="right", style="bold white", no_wrap=True)
-        table.add_column("Downloaded", justify="right", style="green", no_wrap=True)
-        table.add_column("In progress", justify="right", style="bold yellow", no_wrap=True)
+        table.add_column("Status", justify="left", no_wrap=True, min_width=22)
         table.add_column("Size", justify="right", no_wrap=True)
-        table.add_column("Completeness", justify="right", no_wrap=True, min_width=18)
+        table.add_column("Download", justify="right", no_wrap=True, min_width=16)
 
         for s in status["systems"]:
-            pct = s["progress_pct"]
-            acquired = s.get("acquired", s["downloaded"] + s["linked"])
-            acquired_cell = str(acquired)
-            if s["linked"] > 0:
-                acquired_cell += f" ({s['linked']} linked)"
+            complete = s.get("acquired", s["downloaded"] + s["linked"])
+            linked = s.get("linked", 0)
+            exported = s.get("exported", 0)
+
+            status_cell = Text()
+            status_cell.append(
+                f"D {complete}", style="cyan" if complete else "dim"
+            )
+            status_cell.append(" · ", style="dim")
+            status_cell.append(f"L {linked}", style="green" if linked else "dim")
+            status_cell.append(" · ", style="dim")
+            status_cell.append(
+                f"E {exported}", style="magenta" if exported else "dim"
+            )
+
             table.add_row(
                 s["system"],
                 str(s["total"]),
-                acquired_cell if acquired > 0 else "[dim]-[/dim]",
-                str(s["downloading"]) if s["downloading"] > 0 else "[dim]-[/dim]",
+                status_cell,
                 format_size_compact(s.get("size_bytes")),
-                _completion_cell(pct),
+                _download_cell(complete, s["total"]),
             )
         console.print(table)
+        console.print(
+            "[dim]D = downloaded/complete · L = linked · E = exported "
+            "(at least one target) · Download = completed / total[/dim]"
+        )
 
     # Active downloads
     if status.get("target_issues"):

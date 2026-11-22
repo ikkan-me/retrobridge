@@ -42,6 +42,21 @@ def get_system_status(
         """)
         state_bytes = {row["state"]: int(row["bytes"] or 0) for row in cur.fetchall()}
 
+        # Exported games per system: a game counts once if it is on at least
+        # one target (distinct game_id, union of legacy and current tables).
+        cur.execute("""
+            SELECT system, COUNT(DISTINCT game_id) AS cnt FROM (
+                SELECT g.system AS system, ef.game_id AS game_id
+                FROM export_files ef JOIN games g ON g.id = ef.game_id
+                UNION
+                SELECT g.system AS system, e.game_id AS game_id
+                FROM exports e JOIN games g ON g.id = e.game_id
+            ) GROUP BY system;
+        """)
+        exported_by_system = {
+            normalize_system(row["system"]): row["cnt"] for row in cur.fetchall()
+        }
+
         # 2. Detailed breakdown by system
         cur.execute("""
             WITH effective_files AS (
@@ -70,7 +85,9 @@ def get_system_status(
         for row in cur.fetchall():
             tot = row["total"]
             lnk = row["linked"]
+            acquired = row["downloaded"] + lnk
             pct = round((lnk / tot * 100), 1) if tot > 0 else 0.0
+            download_pct = round((acquired / tot * 100), 1) if tot > 0 else 0.0
             systems_summary.append({
                 "system": normalize_system(row["system"]),
                 "total": tot,
@@ -78,9 +95,11 @@ def get_system_status(
                 "downloading": row["downloading"],
                 "downloaded": row["downloaded"],
                 "downloaded_pending": row["downloaded"],
-                "acquired": row["downloaded"] + lnk,
+                "acquired": acquired,
+                "exported": exported_by_system.get(normalize_system(row["system"]), 0),
                 "size_bytes": row["size_bytes"],
-                "progress_pct": pct
+                "progress_pct": pct,
+                "download_pct": download_pct,
             })
 
         # 3. In-progress games: targeted reconciliation (multi-disc)

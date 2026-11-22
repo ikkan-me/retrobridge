@@ -602,6 +602,43 @@ def test_sync_verifies_missing_file_marked_complete(tmp_path: Path, monkeypatch)
     assert any("missing file marked complete" in action for action in res["actions"])
 
 
+def test_status_per_system_exported_and_download_pct(tmp_path: Path):
+    from retrobridge.config import Config, PathsConfig
+    from retrobridge.services.status import get_system_status
+
+    db_file = tmp_path / "status_exported.db"
+    dl_dir = tmp_path / "downloads"
+    lib_dir = tmp_path / "library"
+    dl_dir.mkdir()
+    lib_dir.mkdir()
+    init_db(str(db_file))
+
+    with get_db_connection(str(db_file)) as conn:
+        conn.executemany(
+            "INSERT INTO games (title, system, state, matched_file_name) VALUES (?, 'SNES', 'linked', ?);",
+            [("A", "A.zip"), ("B", "B.zip")],
+        )
+        first_id = conn.execute("SELECT id FROM games WHERE title = 'A';").fetchone()["id"]
+        conn.execute(
+            "INSERT INTO export_files "
+            "(target_id, game_id, disc_number, source_file, exported_file, file_size) "
+            "VALUES ('uuid', ?, 1, 'A.zip', '/sd/A.sfc', 10);",
+            (first_id,),
+        )
+        conn.commit()
+
+    cfg = Config(
+        paths=PathsConfig(download_dir=dl_dir, library_dir=lib_dir, data_dir=tmp_path)
+    )
+    result = get_system_status(config=cfg, db_path=str(db_file), live=False)
+    snes = next(row for row in result["systems"] if row["system"] == "SNES")
+
+    assert snes["total"] == 2
+    assert snes["acquired"] == 2
+    assert snes["exported"] == 1
+    assert snes["download_pct"] == 100.0
+
+
 def test_status_auto_sync_when_stale(tmp_path: Path, monkeypatch):
     db_file = tmp_path / "status_refresh.db"
     init_db(str(db_file))
