@@ -314,7 +314,7 @@ def _interactive_confirm(message: str) -> bool:
     return typer.confirm(message, default=False)
 
 
-def _print_cleanup_report(report: dict, partial_only: bool) -> None:
+def _print_cleanup_report(report: dict, partial_only: bool, library_only: bool = False) -> None:
     refresh = report.get("refresh") or {}
     if refresh.get("ran"):
         console.print(
@@ -360,7 +360,9 @@ def _print_cleanup_report(report: dict, partial_only: bool) -> None:
         format_size(totals.get("orphan_library_bytes", 0)),
     )
     table.add_row(
-        "Fichiers Library sans Download (conservés)",
+        "Fichiers Library sans Download (à supprimer)"
+        if library_only
+        else "Fichiers Library sans Download (conservés)",
         str(totals.get("library_only_files", 0)),
         format_size(totals.get("library_only_bytes", 0)),
     )
@@ -401,9 +403,14 @@ def _print_cleanup_report(report: dict, partial_only: bool) -> None:
             console.print(f"    [dim]· {escape(item['name'])}[/dim]")
 
     if report.get("library_only"):
+        suffix = (
+            "supprimés (--library-only)"
+            if library_only
+            else "conservés (aucune copie Download)"
+        )
         console.print(
             f"[bold yellow]⚠ {len(report['library_only'])} fichier(s) présents uniquement dans "
-            "la Library[/bold yellow] [dim]— conservés (aucune copie Download)[/dim]"
+            f"la Library[/bold yellow] [dim]— {suffix}[/dim]"
         )
         for item in report["library_only"][:5]:
             console.print(f"    [dim]· {escape(item['name'])}[/dim]")
@@ -436,6 +443,11 @@ def tools_clean(
     partial_only: bool = typer.Option(
         False, "--partial-only", help="Only remove .part files (keep complete files for seeding)"
     ),
+    library_only: bool = typer.Option(
+        False,
+        "--library-only",
+        help="Also delete Library files with no Download copy (last copies, irreversible)",
+    ),
     no_games: bool = typer.Option(
         False, "--no-games", help="Do not purge orphan games from the database"
     ),
@@ -462,11 +474,21 @@ def tools_clean(
         or report["partial_unwanted"]
         or report["orphan_files"]
         or report["library_removable"]
+        or (library_only and report["library_only"])
         or (report["complete_unwanted"] and not partial_only)
     )
 
     if not as_json:
-        _print_cleanup_report(report, partial_only=partial_only)
+        _print_cleanup_report(
+            report, partial_only=partial_only, library_only=library_only
+        )
+        if library_only and report.get("library_only"):
+            console.print(
+                f"[bold red]⚠ --library-only :[/bold red] "
+                f"{len(report['library_only'])} fichier(s) sans copie Download "
+                f"seront supprimés définitivement "
+                f"({format_size(report['totals']['library_only_bytes'])})."
+            )
 
     if not actionable:
         if as_json:
@@ -500,6 +522,9 @@ def tools_clean(
             + len(report["library_removable"])
             + (0 if partial_only else len(report["complete_unwanted"]))
         )
+        if library_only:
+            elements += len(report["library_only"])
+            reclaimable += report["totals"]["library_only_bytes"]
         should_apply = _interactive_confirm(
             f"Appliquer le nettoyage ({elements} élément(s), {format_size(reclaimable)} récupérables) ?"
         )
@@ -515,6 +540,7 @@ def tools_clean(
         report,
         db_path=db_path,
         include_complete=not partial_only,
+        include_library_only=library_only,
         purge_games=not no_games,
     )
 

@@ -251,6 +251,7 @@ def apply_cleanup(
     include_partial: bool = True,
     include_orphans: bool = True,
     include_library: bool = True,
+    include_library_only: bool = False,
     purge_games: bool = True,
 ) -> Dict[str, Any]:
     """Deletes the selected files then purges orphan games. Returns what was done."""
@@ -292,6 +293,19 @@ def apply_cleanup(
                 continue
             try:
                 if path.is_file() or path.is_symlink():
+                    path.unlink()
+                    deleted_files += 1
+            except OSError as exc:
+                errors.append(f"{path}: {exc}")
+
+    if include_library_only:
+        # Last copies: no Download counterpart. Only deleted on explicit
+        # `--library-only`, because this is irreversible.
+        for item in report.get("library_only", []):
+            path = Path(item["file"])
+            try:
+                if path.is_file() or path.is_symlink():
+                    freed_bytes += _real_bytes(path)
                     path.unlink()
                     deleted_files += 1
             except OSError as exc:

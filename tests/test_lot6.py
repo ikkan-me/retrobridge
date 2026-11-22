@@ -1065,6 +1065,44 @@ def test_cleanup_detects_stale_resume_and_orphan_library(tmp_path: Path):
     assert (snes / "Only.zip").exists()
     assert res["deleted_files"] == 1
 
+    # Explicit --library-only: the last copy is removed on demand.
+    res2 = apply_cleanup(report, db_path=str(db_file), include_library_only=True)
+    assert not (snes / "Only.zip").exists()
+    assert res2["freed_bytes"] >= 10
+
+
+def test_tools_clean_library_only_opt_in(tmp_path: Path, monkeypatch):
+    from retrobridge.config import Config, PathsConfig, save_config
+
+    db_file = tmp_path / "clean_library_only.db"
+    dl_dir = tmp_path / "downloads"
+    library_dir = tmp_path / "library"
+    snes = library_dir / "snes"
+    dl_dir.mkdir(parents=True)
+    snes.mkdir(parents=True)
+    init_db(str(db_file))
+    (snes / "Only.zip").write_bytes(b"x" * 10)
+
+    cfg = Config(
+        paths=PathsConfig(download_dir=dl_dir, library_dir=library_dir, data_dir=tmp_path)
+    )
+    cfg_file = tmp_path / "config.toml"
+    save_config(cfg, cfg_file)
+    monkeypatch.setenv("RETROBRIDGE_CONFIG", str(cfg_file))
+
+    # Default: reported but kept (last copy).
+    dry = runner.invoke(app, ["tools", "clean", "--no-refresh", "--db", str(db_file)])
+    assert dry.exit_code == 0
+    assert (snes / "Only.zip").exists()
+
+    # Explicit opt-in deletes the last copy.
+    res = runner.invoke(
+        app,
+        ["tools", "clean", "--no-refresh", "--library-only", "--apply", "--db", str(db_file)],
+    )
+    assert res.exit_code == 0
+    assert not (snes / "Only.zip").exists()
+
 
 def test_add_game_removes_old_library_link(tmp_path: Path):
     import os
