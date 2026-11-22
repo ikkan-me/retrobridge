@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="980" viewBox="0 0 1500 980" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1400" viewBox="0 0 1000 1400" role="img" aria-labelledby="title desc">
   <title id="title">RetroBridge pipeline</title>
-  <desc id="desc">From torrent packs to a ready-to-play SD card: acquire, organize, export, with control and maintenance commands.</desc>
+  <desc id="desc">A vertical pipeline: acquire from torrent packs, organize with SQLite and hard links, export to an SD card.</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#F8FAFD"/>
@@ -10,7 +10,7 @@
       <circle cx="1.5" cy="1.5" r="1.1" fill="#DCE4F0"/>
     </pattern>
     <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#0F172A" flood-opacity="0.08"/>
+      <feDropShadow dx="0" dy="7" stdDeviation="14" flood-color="#0F172A" flood-opacity="0.08"/>
     </filter>
     <filter id="softShadow" x="-20%" y="-20%" width="140%" height="140%">
       <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#0F172A" flood-opacity="0.05"/>
@@ -18,263 +18,252 @@
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#94A3B8"/>
     </marker>
-    <marker id="arrowTeal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-      <path d="M 0 0 L 10 5 L 0 10 z" fill="#0D9488"/>
-    </marker>
-    <clipPath id="clip1"><rect x="50" y="160" width="430" height="550" rx="24"/></clipPath>
-    <clipPath id="clip2"><rect x="535" y="160" width="430" height="550" rx="24"/></clipPath>
-    <clipPath id="clip3"><rect x="1020" y="160" width="430" height="550" rx="24"/></clipPath>
+    <clipPath id="clip1"><rect x="50" y="140" width="900" height="270" rx="24"/></clipPath>
+    <clipPath id="clip2"><rect x="50" y="445" width="900" height="300" rx="24"/></clipPath>
+    <clipPath id="clip3"><rect x="50" y="780" width="900" height="300" rx="24"/></clipPath>
     <style>
       text { font-family: Inter, 'Segoe UI', system-ui, -apple-system, 'DejaVu Sans', sans-serif; }
-      .title { font-size: 44px; font-weight: 800; fill: #0F172A; letter-spacing: -1.2px; }
-      .subtitle { font-size: 19px; font-weight: 400; fill: #475569; }
-      .badge { font-size: 13px; font-weight: 600; }
-      .panel-title { font-size: 14px; font-weight: 800; letter-spacing: 1.7px; }
+      .title { font-size: 40px; font-weight: 800; fill: #0F172A; letter-spacing: -1px; }
+      .subtitle { font-size: 17px; font-weight: 400; fill: #475569; }
+      .badge { font-size: 11.5px; font-weight: 600; }
+      .panel-title { font-size: 14px; font-weight: 800; letter-spacing: 1.6px; }
       .panel-sub { font-size: 12px; font-weight: 500; fill: #64748B; }
-      .box-title { font-size: 17px; font-weight: 700; fill: #0F172A; letter-spacing: -0.2px; }
-      .box-text { font-size: 12px; font-weight: 400; fill: #64748B; }
+      .box-title { font-size: 16px; font-weight: 700; fill: #0F172A; }
+      .box-text { font-size: 12.5px; font-weight: 400; fill: #64748B; }
       .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'DejaVu Sans Mono', monospace; }
       .arrow-label { font-size: 9.5px; font-weight: 800; letter-spacing: 1.1px; fill: #64748B; }
       .note { font-size: 12px; font-weight: 500; fill: #64748B; font-style: italic; }
       .bar-kicker { font-size: 11px; font-weight: 800; letter-spacing: 2px; fill: #94A3B8; }
-      .bar-title { font-size: 18px; font-weight: 600; fill: #F8FAFC; }
+      .bar-title { font-size: 16px; font-weight: 600; fill: #F8FAFC; }
       .tool-cmd { font-size: 12.5px; font-weight: 700; fill: #F8FAFC; }
       .tool-desc { font-size: 10.5px; font-weight: 400; fill: #94A3B8; }
-      .footer { font-size: 11.5px; font-weight: 500; fill: #94A3B8; }
+      .footer { font-size: 11px; font-weight: 500; fill: #94A3B8; }
     </style>
   </defs>
 
-  <rect width="1500" height="980" fill="url(#bg)"/>
-  <rect width="1500" height="980" fill="url(#dots)" opacity="0.55"/>
+  <rect width="1000" height="1400" fill="url(#bg)"/>
+  <rect width="1000" height="1400" fill="url(#dots)" opacity="0.55"/>
 
   <!-- Header -->
-  <text x="60" y="78" class="title">RetroBridge</text>
-  <text x="60" y="110" class="subtitle">From torrent packs to a ready-to-play handheld</text>
+  <text x="50" y="68" class="title">RetroBridge</text>
+  <text x="50" y="98" class="subtitle">From torrent packs to a ready-to-play handheld</text>
 
-  <rect x="1118" y="50" width="332" height="44" rx="22" fill="#EEF2FF" stroke="#C7D2FE"/>
-  <g stroke="#4F46E5" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <ellipse cx="1141" cy="67" rx="8" ry="3"/>
-    <path d="M1133 67v9c0 1.7 3.6 3 8 3s8-1.3 8-3v-9"/>
-    <path d="M1133 72c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+  <rect x="640" y="42" width="310" height="34" rx="17" fill="#EEF2FF" stroke="#C7D2FE"/>
+  <g stroke="#4F46E5" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="660" cy="56" rx="7" ry="2.6"/>
+    <path d="M653 56v8c0 1.5 3.1 2.6 7 2.6s7-1.1 7-2.6v-8"/>
+    <path d="M653 60c0 1.5 3.1 2.6 7 2.6s7-1.1 7-2.6"/>
   </g>
-  <text x="1160" y="77" class="badge" fill="#4338CA">SQLite = single source of truth</text>
+  <text x="677" y="64" class="badge" fill="#4338CA">SQLite = single source of truth</text>
 
-  <rect x="1182" y="106" width="268" height="36" rx="18" fill="#F0FDF4" stroke="#BBF7D0"/>
-  <circle cx="1202" cy="124" r="5" fill="#22C55E"/>
-  <text x="1216" y="128" class="badge" fill="#15803D">No background daemon</text>
+  <rect x="640" y="86" width="310" height="30" rx="15" fill="#F0FDF4" stroke="#BBF7D0"/>
+  <circle cx="659" cy="101" r="4.5" fill="#22C55E"/>
+  <text x="672" y="105" class="badge" fill="#15803D">No background daemon</text>
 
-  <!-- Panel 1: Acquire -->
+  <!-- Stage 1: Acquire -->
   <g filter="url(#shadow)">
-    <rect x="50" y="160" width="430" height="550" rx="24" fill="#FFFFFF" stroke="#E2E8F0"/>
+    <rect x="50" y="140" width="900" height="270" rx="24" fill="#FFFFFF" stroke="#E2E8F0"/>
   </g>
   <g clip-path="url(#clip1)">
-    <rect x="50" y="160" width="430" height="82" fill="#FFF7ED"/>
+    <rect x="50" y="140" width="900" height="72" fill="#FFF7ED"/>
   </g>
-  <circle cx="82" cy="201" r="18" fill="#F59E0B"/>
-  <text x="82" y="207" text-anchor="middle" font-size="15" font-weight="800" fill="#FFFFFF">1</text>
-  <text x="112" y="198" class="panel-title" fill="#B45309">ACQUIRE</text>
-  <text x="112" y="220" class="panel-sub">Torrent packs → raw files</text>
+  <circle cx="80" cy="176" r="18" fill="#F59E0B"/>
+  <text x="80" y="182" text-anchor="middle" font-size="15" font-weight="800" fill="#FFFFFF">1</text>
+  <text x="110" y="172" class="panel-title" fill="#B45309">ACQUIRE</text>
+  <text x="110" y="194" class="panel-sub">Torrent packs → raw files</text>
 
   <g filter="url(#softShadow)">
-    <rect x="80" y="268" width="370" height="88" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
+    <rect x="80" y="230" width="410" height="100" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
   </g>
-  <circle cx="108" cy="298" r="17" fill="#FFF7ED" stroke="#FDE68A"/>
+  <circle cx="108" cy="260" r="17" fill="#FFF7ED" stroke="#FDE68A"/>
   <g stroke="#D97706" stroke-width="2.1" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M108 290v12"/>
-    <path d="M103 297l5 5 5-5"/>
-    <path d="M101 308h14"/>
+    <path d="M108 252v12"/>
+    <path d="M103 259l5 5 5-5"/>
+    <path d="M101 270h14"/>
   </g>
-  <text x="136" y="294" class="box-title">Torrent packs</text>
-  <text x="136" y="315" class="box-text">Transmission · paused by default</text>
-  <text x="136" y="334" class="box-text">Only selected files are requested</text>
-
-  <path d="M265 356 L265 375" stroke="#CBD5E1" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="136" y="256" class="box-title">Torrent packs</text>
+  <text x="136" y="277" class="box-text">Transmission · paused by default</text>
+  <text x="136" y="296" class="box-text">Only selected files are requested</text>
 
   <g filter="url(#softShadow)">
-    <rect x="80" y="378" width="370" height="88" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
+    <rect x="510" y="230" width="410" height="100" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
   </g>
-  <circle cx="108" cy="408" r="17" fill="#FFF7ED" stroke="#FDE68A"/>
+  <circle cx="538" cy="260" r="17" fill="#FFF7ED" stroke="#FDE68A"/>
   <g stroke="#D97706" stroke-width="2.1" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M100 403h6l2 2h8v13h-16z"/>
+    <path d="M530 255h6l2 2h8v13h-16z"/>
   </g>
-  <text x="136" y="404" class="box-title">Download-Dir</text>
-  <text x="136" y="425" class="box-text">Raw files · seeding preserved</text>
-  <text x="136" y="444" class="box-text">Never altered by hand</text>
+  <text x="566" y="256" class="box-title">Download-Dir</text>
+  <text x="566" y="277" class="box-text">Raw files · seeding preserved</text>
+  <text x="566" y="296" class="box-text">Never altered by hand</text>
 
-  <rect x="80" y="488" width="370" height="88" rx="16" fill="#FFFBEB" stroke="#FDE68A"/>
-  <circle cx="108" cy="518" r="17" fill="#FEF3C7" stroke="#FCD34D"/>
-  <g stroke="#B45309" stroke-width="2.2" fill="none" stroke-linecap="round">
-    <path d="M108 511v8"/>
-    <circle cx="108" cy="525" r="0.6" fill="#B45309" stroke="none"/>
+  <rect x="80" y="345" width="840" height="48" rx="12" fill="#FFFBEB" stroke="#FDE68A"/>
+  <circle cx="104" cy="369" r="12" fill="#FEF3C7" stroke="#FCD34D"/>
+  <g stroke="#B45309" stroke-width="2" fill="none" stroke-linecap="round">
+    <path d="M104 363v7"/>
+    <circle cx="104" cy="375" r="0.5" fill="#B45309" stroke="none"/>
   </g>
-  <text x="136" y="514" class="box-title" fill="#92400E">Selection rule</text>
-  <text x="136" y="535" class="box-text" fill="#92400E">The rest of each pack stays unselected;</text>
-  <text x="136" y="554" class="box-text" fill="#92400E">no bytes are downloaded accidentally.</text>
+  <text x="126" y="374" font-size="12.5" font-weight="500" fill="#92400E">Only selected files are requested — the rest of each pack stays unselected.</text>
 
-  <text x="80" y="616" class="note">Packs stay paused until a game is added.</text>
+  <!-- Arrow 1 -->
+  <path d="M500 410 L500 438" stroke="#94A3B8" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <text x="514" y="430" class="arrow-label">INDEX &amp; SCORE</text>
 
-  <!-- Arrow 1 -> 2 -->
-  <path d="M484 420 L528 420" stroke="#94A3B8" stroke-width="2.4" marker-end="url(#arrow)"/>
-  <text x="506" y="408" text-anchor="middle" class="arrow-label">INDEX</text>
-
-  <!-- Panel 2: Organize -->
+  <!-- Stage 2: Organize -->
   <g filter="url(#shadow)">
-    <rect x="535" y="160" width="430" height="550" rx="24" fill="#FFFFFF" stroke="#E2E8F0"/>
+    <rect x="50" y="445" width="900" height="300" rx="24" fill="#FFFFFF" stroke="#E2E8F0"/>
   </g>
   <g clip-path="url(#clip2)">
-    <rect x="535" y="160" width="430" height="82" fill="#F0FDFA"/>
+    <rect x="50" y="445" width="900" height="72" fill="#F0FDFA"/>
   </g>
-  <circle cx="567" cy="201" r="18" fill="#0D9488"/>
-  <text x="567" y="207" text-anchor="middle" font-size="15" font-weight="800" fill="#FFFFFF">2</text>
-  <text x="597" y="198" class="panel-title" fill="#0F766E">ORGANIZE</text>
-  <text x="597" y="220" class="panel-sub">SQLite catalog → linked library</text>
+  <circle cx="80" cy="481" r="18" fill="#0D9488"/>
+  <text x="80" y="487" text-anchor="middle" font-size="15" font-weight="800" fill="#FFFFFF">2</text>
+  <text x="110" y="477" class="panel-title" fill="#0F766E">ORGANIZE</text>
+  <text x="110" y="499" class="panel-sub">SQLite catalog → linked library</text>
 
   <g filter="url(#softShadow)">
-    <rect x="565" y="268" width="370" height="88" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
+    <rect x="80" y="535" width="266" height="110" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
   </g>
-  <circle cx="593" cy="298" r="17" fill="#F0FDFA" stroke="#99F6E4"/>
-  <g stroke="#0F766E" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <ellipse cx="593" cy="291" rx="8" ry="3"/>
-    <path d="M585 291v9c0 1.7 3.6 3 8 3s8-1.3 8-3v-9"/>
-    <path d="M585 296c0 1.7 3.6 3 8 3s8-1.3 8-3"/>
+  <circle cx="106" cy="565" r="16" fill="#F0FDFA" stroke="#99F6E4"/>
+  <g stroke="#0F766E" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="106" cy="559" rx="7.5" ry="2.6"/>
+    <path d="M98.5 559v9c0 1.5 3.4 2.6 7.5 2.6s7.5-1.1 7.5-2.6v-9"/>
+    <path d="M98.5 564c0 1.5 3.4 2.6 7.5 2.6s7.5-1.1 7.5-2.6"/>
   </g>
-  <text x="621" y="294" class="box-title">SQLite catalog</text>
-  <text x="621" y="315" class="box-text">games · game_files · torrent_meta</text>
-  <text x="621" y="334" class="box-text">single source of truth</text>
-
-  <path d="M750 356 L750 375" stroke="#CBD5E1" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="132" y="561" class="box-title">SQLite catalog</text>
+  <text x="132" y="582" class="box-text">games · game_files</text>
+  <text x="132" y="600" class="box-text">torrent_meta</text>
+  <text x="132" y="618" class="box-text">single source of truth</text>
 
   <g filter="url(#softShadow)">
-    <rect x="565" y="378" width="370" height="88" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
+    <rect x="367" y="535" width="266" height="110" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
   </g>
-  <circle cx="593" cy="408" r="17" fill="#F0FDFA" stroke="#99F6E4"/>
-  <g stroke="#0F766E" stroke-width="2" fill="none" stroke-linecap="round">
-    <path d="M584 401h20M584 408h20M584 415h20"/>
-    <circle cx="590" cy="401" r="2.2" fill="#F0FDFA"/>
-    <circle cx="599" cy="408" r="2.2" fill="#F0FDFA"/>
-    <circle cx="594" cy="415" r="2.2" fill="#F0FDFA"/>
+  <circle cx="393" cy="565" r="16" fill="#F0FDFA" stroke="#99F6E4"/>
+  <g stroke="#0F766E" stroke-width="1.9" fill="none" stroke-linecap="round">
+    <path d="M385 559h16M385 565h16M385 571h16"/>
+    <circle cx="390" cy="559" r="2" fill="#F0FDFA"/>
+    <circle cx="398" cy="565" r="2" fill="#F0FDFA"/>
+    <circle cx="394" cy="571" r="2" fill="#F0FDFA"/>
   </g>
-  <text x="621" y="404" class="box-title">Scoring &amp; selection</text>
-  <text x="621" y="425" class="box-text">60Hz / NTSC · revisions · languages</text>
-  <text x="621" y="444" class="box-text">exact-title matching</text>
-
-  <path d="M750 466 L750 485" stroke="#CBD5E1" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="419" y="561" class="box-title">Scoring &amp; selection</text>
+  <text x="419" y="582" class="box-text">60Hz / NTSC</text>
+  <text x="419" y="600" class="box-text">revisions · languages</text>
+  <text x="419" y="618" class="box-text">exact-title matching</text>
 
   <g filter="url(#softShadow)">
-    <rect x="565" y="488" width="370" height="88" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
+    <rect x="654" y="535" width="266" height="110" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
   </g>
-  <circle cx="593" cy="518" r="17" fill="#F0FDFA" stroke="#99F6E4"/>
-  <g stroke="#0F766E" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M587 514l3-3a4 4 0 0 1 6 6l-3 3"/>
-    <path d="M599 522l-3 3a4 4 0 0 1-6-6l3-3"/>
+  <circle cx="680" cy="565" r="16" fill="#F0FDFA" stroke="#99F6E4"/>
+  <g stroke="#0F766E" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M675 561l3-3a4 4 0 0 1 6 6l-3 3"/>
+    <path d="M687 569l-3 3a4 4 0 0 1-6-6l3-3"/>
   </g>
-  <text x="621" y="514" class="box-title">Library-Dir</text>
-  <text x="621" y="535" class="box-text">hard links by system · multi-disc .m3u</text>
-  <text x="621" y="554" class="box-text">zero duplicated space</text>
+  <text x="706" y="561" class="box-title">Library-Dir</text>
+  <text x="706" y="582" class="box-text">hard links by system</text>
+  <text x="706" y="600" class="box-text">multi-disc .m3u</text>
+  <text x="706" y="618" class="box-text">zero duplicated space</text>
 
-  <text x="565" y="616" class="note">Every game points to a real, indexed file.</text>
+  <text x="80" y="690" class="note">Every game points to a real, indexed file.</text>
 
-  <!-- Arrow 2 -> 3 -->
-  <path d="M969 420 L1013 420" stroke="#94A3B8" stroke-width="2.4" marker-end="url(#arrow)"/>
-  <text x="991" y="408" text-anchor="middle" class="arrow-label">EXPORT</text>
+  <!-- Arrow 2 -->
+  <path d="M500 745 L500 773" stroke="#94A3B8" stroke-width="2.4" marker-end="url(#arrow)"/>
+  <text x="514" y="765" class="arrow-label">EXPORT</text>
 
-  <!-- Panel 3: Export -->
+  <!-- Stage 3: Export -->
   <g filter="url(#shadow)">
-    <rect x="1020" y="160" width="430" height="550" rx="24" fill="#FFFFFF" stroke="#E2E8F0"/>
+    <rect x="50" y="780" width="900" height="300" rx="24" fill="#FFFFFF" stroke="#E2E8F0"/>
   </g>
   <g clip-path="url(#clip3)">
-    <rect x="1020" y="160" width="430" height="82" fill="#EEF2FF"/>
+    <rect x="50" y="780" width="900" height="72" fill="#EEF2FF"/>
   </g>
-  <circle cx="1052" cy="201" r="18" fill="#4F46E5"/>
-  <text x="1052" y="207" text-anchor="middle" font-size="15" font-weight="800" fill="#FFFFFF">3</text>
-  <text x="1082" y="198" class="panel-title" fill="#4338CA">EXPORT</text>
-  <text x="1082" y="220" class="panel-sub">Staging → SD card</text>
+  <circle cx="80" cy="816" r="18" fill="#4F46E5"/>
+  <text x="80" y="822" text-anchor="middle" font-size="15" font-weight="800" fill="#FFFFFF">3</text>
+  <text x="110" y="812" class="panel-title" fill="#4338CA">EXPORT</text>
+  <text x="110" y="834" class="panel-sub">Staging → SD card</text>
 
   <g filter="url(#softShadow)">
-    <rect x="1050" y="268" width="370" height="88" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
+    <rect x="80" y="870" width="266" height="110" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
   </g>
-  <circle cx="1078" cy="298" r="17" fill="#EEF2FF" stroke="#C7D2FE"/>
-  <g stroke="#4338CA" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="1069" y="291" width="18" height="13" rx="2"/>
-    <path d="M1078 287v9"/>
-    <path d="M1074 292l4 4 4-4"/>
+  <circle cx="106" cy="900" r="16" fill="#EEF2FF" stroke="#C7D2FE"/>
+  <g stroke="#4338CA" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="98" y="893" width="17" height="12" rx="2"/>
+    <path d="M106.5 889v8"/>
+    <path d="M103 894l3.5 3.5 3.5-3.5"/>
   </g>
-  <text x="1106" y="294" class="box-title">Staging</text>
-  <text x="1106" y="315" class="box-text">CHD · RVZ · unzip</text>
-  <text x="1106" y="334" class="box-text">local SSD, before the card</text>
-
-  <path d="M1235 356 L1235 375" stroke="#CBD5E1" stroke-width="2" marker-end="url(#arrow)"/>
-
-  <g filter="url(#softShadow)">
-    <rect x="1050" y="378" width="370" height="88" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
-  </g>
-  <circle cx="1078" cy="408" r="17" fill="#EEF2FF" stroke="#C7D2FE"/>
-  <g stroke="#4338CA" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="1070" y="401" width="11" height="11" rx="2"/>
-    <rect x="1077" y="408" width="11" height="11" rx="2"/>
-  </g>
-  <text x="1106" y="404" class="box-title">Incremental copy</text>
-  <text x="1106" y="425" class="box-text">only new or changed files</text>
-  <text x="1106" y="444" class="box-text">free-space check first</text>
-
-  <path d="M1235 466 L1235 485" stroke="#CBD5E1" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="132" y="896" class="box-title">Staging</text>
+  <text x="132" y="917" class="box-text">CHD · RVZ · unzip</text>
+  <text x="132" y="935" class="box-text">local SSD</text>
+  <text x="132" y="953" class="box-text">before the card</text>
 
   <g filter="url(#softShadow)">
-    <rect x="1050" y="488" width="370" height="88" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
+    <rect x="367" y="870" width="266" height="110" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
   </g>
-  <circle cx="1078" cy="518" r="17" fill="#EEF2FF" stroke="#C7D2FE"/>
-  <g stroke="#4338CA" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M1070 510h11l6 6v10h-17z"/>
-    <path d="M1075 514v3M1079 514v3"/>
+  <circle cx="393" cy="900" r="16" fill="#EEF2FF" stroke="#C7D2FE"/>
+  <g stroke="#4338CA" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="386" y="893" width="10" height="10" rx="2"/>
+    <rect x="392" y="899" width="10" height="10" rx="2"/>
   </g>
-  <text x="1106" y="514" class="box-title">SD card targets</text>
-  <text x="1106" y="535" class="box-text">ES-DE · Knulli · Batocera</text>
-  <text x="1106" y="554" class="box-text">one folder per system</text>
+  <text x="419" y="896" class="box-title">Incremental copy</text>
+  <text x="419" y="917" class="box-text">only new/changed</text>
+  <text x="419" y="935" class="box-text">free-space check</text>
+  <text x="419" y="953" class="box-text">no re-copy</text>
 
-  <text x="1050" y="616" class="note">Destination-only files are reported, never deleted.</text>
+  <g filter="url(#softShadow)">
+    <rect x="654" y="870" width="266" height="110" rx="16" fill="#FFFFFF" stroke="#E2E8F0"/>
+  </g>
+  <circle cx="680" cy="900" r="16" fill="#EEF2FF" stroke="#C7D2FE"/>
+  <g stroke="#4338CA" stroke-width="1.9" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M673 892h10l5 5v9h-15z"/>
+    <path d="M677 896v3M681 896v3"/>
+  </g>
+  <text x="706" y="896" class="box-title">SD card targets</text>
+  <text x="706" y="917" class="box-text">ES-DE · Knulli</text>
+  <text x="706" y="935" class="box-text">Batocera</text>
+  <text x="706" y="953" class="box-text">one folder per system</text>
 
-  <!-- Control and maintenance bar -->
-  <rect x="50" y="760" width="1400" height="160" rx="24" fill="#0F172A"/>
-  <text x="80" y="800" class="bar-kicker">CONTROL &amp; MAINTENANCE</text>
-  <text x="80" y="826" class="bar-title">Read-only diagnostics, safe cleanup and integrity checks</text>
+  <text x="80" y="1025" class="note">Destination-only files are reported, never deleted.</text>
+
+  <!-- Tools bar -->
+  <rect x="50" y="1110" width="900" height="230" rx="24" fill="#0F172A"/>
+  <text x="80" y="1148" class="bar-kicker">CONTROL &amp; MAINTENANCE</text>
+  <text x="80" y="1173" class="bar-title">Read-only diagnostics, safe cleanup and integrity checks</text>
 
   <g>
-    <rect x="80" y="852" width="200" height="52" rx="14" fill="#1E293B" stroke="#334155"/>
-    <circle cx="98" cy="870" r="3" fill="#38BDF8"/>
-    <text x="110" y="875" class="tool-cmd mono">status</text>
-    <text x="110" y="892" class="tool-desc">health, sizes, targets</text>
+    <rect x="80" y="1190" width="266" height="54" rx="14" fill="#1E293B" stroke="#334155"/>
+    <circle cx="98" cy="1208" r="3" fill="#38BDF8"/>
+    <text x="110" y="1213" class="tool-cmd mono">status</text>
+    <text x="110" y="1230" class="tool-desc">health, sizes, targets</text>
   </g>
   <g>
-    <rect x="300" y="852" width="220" height="52" rx="14" fill="#1E293B" stroke="#334155"/>
-    <circle cx="318" cy="870" r="3" fill="#2DD4BF"/>
-    <text x="330" y="875" class="tool-cmd mono">tools audit</text>
-    <text x="330" y="892" class="tool-desc">orphan detection</text>
+    <rect x="366" y="1190" width="266" height="54" rx="14" fill="#1E293B" stroke="#334155"/>
+    <circle cx="384" cy="1208" r="3" fill="#2DD4BF"/>
+    <text x="396" y="1213" class="tool-cmd mono">tools audit</text>
+    <text x="396" y="1230" class="tool-desc">orphan detection</text>
   </g>
   <g>
-    <rect x="540" y="852" width="220" height="52" rx="14" fill="#1E293B" stroke="#334155"/>
-    <circle cx="558" cy="870" r="3" fill="#FBBF24"/>
-    <text x="570" y="875" class="tool-cmd mono">tools clean</text>
-    <text x="570" y="892" class="tool-desc">dry-run by default</text>
+    <rect x="652" y="1190" width="266" height="54" rx="14" fill="#1E293B" stroke="#334155"/>
+    <circle cx="670" cy="1208" r="3" fill="#FBBF24"/>
+    <text x="682" y="1213" class="tool-cmd mono">tools clean</text>
+    <text x="682" y="1230" class="tool-desc">dry-run by default</text>
   </g>
   <g>
-    <rect x="780" y="852" width="220" height="52" rx="14" fill="#1E293B" stroke="#334155"/>
-    <circle cx="798" cy="870" r="3" fill="#A78BFA"/>
-    <text x="810" y="875" class="tool-cmd mono">tools verify</text>
-    <text x="810" y="892" class="tool-desc">torrent integrity</text>
+    <rect x="80" y="1258" width="266" height="54" rx="14" fill="#1E293B" stroke="#334155"/>
+    <circle cx="98" cy="1276" r="3" fill="#A78BFA"/>
+    <text x="110" y="1281" class="tool-cmd mono">tools verify</text>
+    <text x="110" y="1298" class="tool-desc">torrent integrity</text>
   </g>
   <g>
-    <rect x="1020" y="852" width="200" height="52" rx="14" fill="#1E293B" stroke="#334155"/>
-    <circle cx="1038" cy="870" r="3" fill="#F472B6"/>
-    <text x="1050" y="875" class="tool-cmd mono">tools bios</text>
-    <text x="1050" y="892" class="tool-desc">via RetroBios</text>
+    <rect x="366" y="1258" width="266" height="54" rx="14" fill="#1E293B" stroke="#334155"/>
+    <circle cx="384" cy="1276" r="3" fill="#F472B6"/>
+    <text x="396" y="1281" class="tool-cmd mono">tools bios</text>
+    <text x="396" y="1298" class="tool-desc">via RetroBios</text>
   </g>
   <g>
-    <rect x="1240" y="852" width="180" height="52" rx="14" fill="#1E293B" stroke="#334155"/>
-    <circle cx="1258" cy="870" r="3" fill="#FB923C"/>
-    <text x="1270" y="875" class="tool-cmd mono">pack add</text>
-    <text x="1270" y="892" class="tool-desc">paused packs</text>
+    <rect x="652" y="1258" width="266" height="54" rx="14" fill="#1E293B" stroke="#334155"/>
+    <circle cx="670" cy="1276" r="3" fill="#FB923C"/>
+    <text x="682" y="1281" class="tool-cmd mono">pack add</text>
+    <text x="682" y="1298" class="tool-desc">paused packs</text>
   </g>
 
-  <text x="80" y="950" class="footer">RetroBridge v2 · from torrent pack to handheld</text>
-  <text x="1420" y="950" text-anchor="end" class="footer">SQLite-driven · hard-linked · incremental</text>
+  <text x="50" y="1375" class="footer">RetroBridge v2 · from torrent pack to handheld</text>
+  <text x="950" y="1375" text-anchor="end" class="footer">SQLite-driven · hard-linked · incremental</text>
 </svg>
