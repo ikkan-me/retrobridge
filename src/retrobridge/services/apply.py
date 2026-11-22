@@ -2,8 +2,9 @@ from typing import Dict, Any, Optional, List
 from collections import defaultdict
 
 from retrobridge.config import Config, load_config
-from retrobridge.storage.db import backfill_game_files, get_db_connection
+from retrobridge.storage.db import backfill_game_files, get_db_connection, set_meta
 from retrobridge.adapters.transmission import TransmissionClient
+from retrobridge.services.verify import torrents_needing_verify
 
 
 # Very large packs (12,000+ files) stall the Transmission RPC:
@@ -36,7 +37,8 @@ def apply_selection(
     with get_db_connection(db_path) as conn:
         backfill_game_files(conn)
         rows = conn.execute(
-            "SELECT torrent_id, file_index, is_wanted FROM torrent_cache;"
+            "SELECT torrent_id, file_index, is_wanted, file_name, file_length, bytes_completed "
+            "FROM torrent_cache;"
         ).fetchall()
 
         wanted_by_torrent: Dict[int, set] = defaultdict(set)
@@ -58,14 +60,17 @@ def apply_selection(
                 "torrents_processed": 0,
                 "files_wanted": 0,
                 "files_unwanted": 0,
+                "verifications": [],
                 "details": [],
                 "errors": [],
             }
 
         current: Dict[int, set] = defaultdict(set)
         total_by_torrent: Dict[int, int] = defaultdict(int)
+        rows_by_key: Dict[tuple, Dict[str, Any]] = {}
         for row in rows:
             total_by_torrent[row["torrent_id"]] += 1
+            rows_by_key[(row["torrent_id"], row["file_index"])] = dict(row)
             if row["is_wanted"]:
                 current[row["torrent_id"]].add(row["file_index"])
 
@@ -80,6 +85,7 @@ def apply_selection(
                     "torrents_processed": 0,
                     "files_wanted": 0,
                     "files_unwanted": 0,
+                    "verifications": [],
                     "details": [],
                     "errors": [f"Apply skipped: {e}"],
                 }
@@ -88,6 +94,7 @@ def apply_selection(
         errors: List[str] = []
         files_wanted = 0
         files_unwanted = 0
+        verifications: List[int] = []
 
         for tid in sorted(wanted_by_torrent):
             desired = wanted_by_torrent[tid]
@@ -152,6 +159,22 @@ def apply_selection(
                 files_unwanted += applied_unwanted
                 continue
 
+            # A file already complete on disk but reported as empty by
+            # Transmission (re-added pack or lost resume) must be verified,
+            # never re-downloaded over itself.
+            candidates = [
+                rows_by_key[(tid, idx)] for idx in to_want if (tid, idx) in rows_by_key
+            ]
+            if candidates:
+                flagged = torrents_needing_verify(cfg.paths.download_dir, candidates)
+                if tid in flagged:
+                    try:
+                        rpc.verify_torrent(tid)
+                        verifications.append(tid)
+                        set_meta(conn, f"verify:{tid}", "requested")
+                    except Exception as e:
+                        errors.append(f"Torrent #{tid}: verification failed: {e}")
+
             files_wanted += applied_wanted
             files_unwanted += applied_unwanted
 
@@ -163,6 +186,7 @@ def apply_selection(
         "torrents_processed": len(details),
         "files_wanted": files_wanted,
         "files_unwanted": files_unwanted,
+        "verifications": verifications,
         "details": details,
         "errors": errors,
     }

@@ -9,6 +9,7 @@ from retrobridge.storage.lock import file_lock
 from retrobridge.profiles.loader import load_profile
 from retrobridge.services.scan import scan_torrents
 from retrobridge.services.apply import apply_selection
+from retrobridge.services.verify import torrents_needing_verify
 from retrobridge.adapters.transmission import TransmissionClient
 from retrobridge.domain.multidisc import extract_disc_number, get_disc_family, generate_m3u_content
 from retrobridge.domain.systems import normalize_system
@@ -164,23 +165,32 @@ def run_sync(
                     f"{apply_res['files_unwanted']} unselected "
                     f"({apply_res['torrents_processed']} torrents)."
                 )
+            if apply_res.get("verifications"):
+                actions.append(
+                    f"Apply: verification requested for {len(apply_res['verifications'])} "
+                    "torrent(s) with existing files."
+                )
             for err in apply_res["errors"]:
                 actions.append(f"Apply warning: {err}")
 
             # 2.5. Transmission reconciliation: ensure requested files are active and torrents are running
             cur.execute("""
-                SELECT g.id, g.title, g.matched_torrent_id, g.matched_file_index
+                SELECT g.id, g.title, g.state, g.matched_torrent_id, g.matched_file_index
                 FROM games g
-                WHERE g.state = 'downloading'
+                WHERE g.state IN ('downloading', 'downloaded', 'linked')
                   AND g.matched_torrent_id IS NOT NULL
                   AND g.matched_file_index IS NOT NULL;
             """)
-            active_games = cur.fetchall()
+            selected_games = cur.fetchall()
             files_to_want_by_torrent = defaultdict(list)
-            for g in active_games:
-                files_to_want_by_torrent[g["matched_torrent_id"]].append(g["matched_file_index"])
+            verify_indices_by_torrent = defaultdict(list)
+            for g in selected_games:
+                tid = g["matched_torrent_id"]
+                verify_indices_by_torrent[tid].append(g["matched_file_index"])
+                if g["state"] == "downloading":
+                    files_to_want_by_torrent[tid].append(g["matched_file_index"])
 
-            if reconcile_transmission and files_to_want_by_torrent:
+            if reconcile_transmission and (files_to_want_by_torrent or verify_indices_by_torrent):
                 try:
                     t_client = TransmissionClient(
                         rpc_url=cfg.transmission.rpc_url,
@@ -189,17 +199,25 @@ def run_sync(
                         timeout=cfg.transmission.timeout,
                     )
                     if t_client.test_connection():
-                        t_ids = list(files_to_want_by_torrent.keys())
+                        t_ids = list(set(files_to_want_by_torrent) | set(verify_indices_by_torrent))
                         t_data = t_client.request("torrent-get", {
                             "ids": t_ids,
                             "fields": ["id", "name", "status", "fileStats"]
                         }).get("arguments", {}).get("torrents", [])
 
+                        cache_rows = conn.execute(
+                            "SELECT torrent_id, file_index, file_name, file_length, "
+                            "bytes_completed, is_wanted FROM torrent_cache;"
+                        ).fetchall()
+                        cache_by_key = {
+                            (r["torrent_id"], r["file_index"]): dict(r) for r in cache_rows
+                        }
+
                         for t_item in t_data:
                             tid = t_item["id"]
                             t_status = t_item.get("status", 0)  # 0 = stopped/paused
                             fstats = t_item.get("fileStats", [])
-                            needed_indices = files_to_want_by_torrent[tid]
+                            needed_indices = files_to_want_by_torrent.get(tid, [])
 
                             missing_wanted = [
                                 idx for idx in needed_indices
@@ -211,8 +229,39 @@ def run_sync(
                                     t_client.set_file_priorities(tid, wanted_indices=missing_wanted)
                                 actions.append(f"Transmission: {len(missing_wanted)} files re-enabled (wanted) in {t_item.get('name', f'Torrent #{tid}')}")
 
+                            # Complete files reported as empty (re-added pack or
+                            # lost resume) must be verified, not re-downloaded.
+                            # Use the live fileStats, not the possibly stale cache.
+                            verify_rows = []
+                            for idx in verify_indices_by_torrent.get(tid, []):
+                                row = cache_by_key.get((tid, idx))
+                                if row is None:
+                                    continue
+                                live = fstats[idx] if idx < len(fstats) else {}
+                                verify_rows.append({
+                                    **row,
+                                    "bytes_completed": int(
+                                        live.get("bytesCompleted", row.get("bytes_completed") or 0)
+                                    ),
+                                })
+                            flagged = torrents_needing_verify(
+                                cfg.paths.download_dir, verify_rows
+                            )
+                            if flagged and t_status != 2:  # 2 = currently checking
+                                recently_requested = not is_ttl_expired(
+                                    conn, f"verify:{tid}", 6 * 3600
+                                )
+                                if not recently_requested:
+                                    if not dry_run:
+                                        t_client.verify_torrent(tid)
+                                        set_meta(conn, f"verify:{tid}", "requested")
+                                    actions.append(
+                                        f"Transmission: verification requested for torrent #{tid} "
+                                        f"({t_item.get('name', tid)}) — existing files"
+                                    )
+
                             # If the torrent is paused (0) and has requested files
-                            if t_status == 0:
+                            if t_status == 0 and needed_indices:
                                 if not dry_run:
                                     t_client.start_torrent(tid)
                                 actions.append(f"Transmission: Torrent #{tid} started ({t_item.get('name', tid)})")

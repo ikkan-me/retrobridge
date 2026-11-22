@@ -260,12 +260,16 @@ def test_prepare_export_stages_without_target(tmp_path: Path, monkeypatch):
 class _FakeTransmission:
     def __init__(self):
         self.calls = []
+        self.verify_calls = []
 
     def test_connection(self):
         return True
 
     def set_file_priorities(self, torrent_id, wanted_indices=None, unwanted_indices=None, chunk_size=1000):
         self.calls.append((torrent_id, list(wanted_indices or []), list(unwanted_indices or [])))
+
+    def verify_torrent(self, torrent_id):
+        self.verify_calls.append(torrent_id)
 
 
 def test_apply_selection_only_keeps_game_files(tmp_path: Path):
@@ -302,6 +306,209 @@ def test_apply_selection_only_keeps_game_files(tmp_path: Path):
     res2 = apply_selection(db_path=str(db_file), client=fake2)
     assert res2["torrents_processed"] == 0
     assert fake2.calls == []
+
+
+def _seed_apply_verify(tmp_path: Path, file_exists: bool = True, bytes_completed: int = 0):
+    from retrobridge.config import Config, PathsConfig
+
+    db_file = tmp_path / "apply_verify.db"
+    dl_dir = tmp_path / "downloads"
+    dl_dir.mkdir(parents=True)
+    if file_exists:
+        (dl_dir / "rom2.zip").write_bytes(b"x" * 100)
+
+    init_db(str(db_file))
+    with get_db_connection(str(db_file)) as conn:
+        for index in (0, 1):
+            conn.execute(
+                "INSERT INTO torrent_cache "
+                "(torrent_id, torrent_name, file_index, file_name, file_length, is_wanted, bytes_completed) "
+                "VALUES (7, 'Pack', ?, ?, 100, 0, 0);",
+                (index, f"rom{index}.zip"),
+            )
+        conn.execute(
+            "INSERT INTO torrent_cache "
+            "(torrent_id, torrent_name, file_index, file_name, file_length, is_wanted, bytes_completed) "
+            "VALUES (7, 'Pack', 2, 'rom2.zip', 100, 0, ?);",
+            (bytes_completed,),
+        )
+        conn.execute(
+            "INSERT INTO games "
+            "(title, system, state, matched_torrent_id, matched_file_index, matched_file_name) "
+            "VALUES ('Jeu', 'SNES', 'linked', 7, 2, 'rom2.zip');"
+        )
+        conn.commit()
+
+    cfg = Config(
+        paths=PathsConfig(download_dir=dl_dir, library_dir=tmp_path / "lib", data_dir=tmp_path)
+    )
+    return db_file, dl_dir, cfg
+
+
+def test_verify_helpers(tmp_path: Path):
+    from retrobridge.services.verify import needs_verification
+
+    path = tmp_path / "a.zip"
+    path.write_bytes(b"x" * 100)
+
+    # Complete on disk, Transmission reports 0 → verify.
+    assert needs_verification(tmp_path, "a.zip", 100, 0) is True
+    # Transmission already knows the file → no verify.
+    assert needs_verification(tmp_path, "a.zip", 100, 100) is False
+    # Missing file → nothing to verify.
+    assert needs_verification(tmp_path, "missing.zip", 100, 0) is False
+    # Truncated file → Transmission must download the rest, not verify.
+    assert needs_verification(tmp_path, "a.zip", 200, 0) is False
+
+
+def test_apply_selection_verifies_existing_complete_file(tmp_path: Path):
+    from retrobridge.services.apply import apply_selection
+
+    db_file, _dl_dir, cfg = _seed_apply_verify(tmp_path)
+    fake = _FakeTransmission()
+    res = apply_selection(config=cfg, db_path=str(db_file), client=fake)
+
+    assert res["verifications"] == [7]
+    assert fake.verify_calls == [7]
+
+
+def test_apply_selection_skips_verify_when_file_is_missing(tmp_path: Path):
+    from retrobridge.services.apply import apply_selection
+
+    db_file, _dl_dir, cfg = _seed_apply_verify(tmp_path, file_exists=False)
+    fake = _FakeTransmission()
+    res = apply_selection(config=cfg, db_path=str(db_file), client=fake)
+
+    assert res["verifications"] == []
+    assert fake.verify_calls == []
+
+
+def test_apply_selection_skips_verify_when_progress_is_known(tmp_path: Path):
+    from retrobridge.services.apply import apply_selection
+
+    db_file, _dl_dir, cfg = _seed_apply_verify(tmp_path, bytes_completed=100)
+    fake = _FakeTransmission()
+    res = apply_selection(config=cfg, db_path=str(db_file), client=fake)
+
+    assert res["verifications"] == []
+    assert fake.verify_calls == []
+
+
+def test_add_game_verifies_existing_complete_file(tmp_path: Path, monkeypatch):
+    from retrobridge.config import Config, PathsConfig
+    from retrobridge.services.add import add_game
+
+    db_file = tmp_path / "add_verify.db"
+    dl_dir = tmp_path / "downloads"
+    dl_dir.mkdir(parents=True)
+    (dl_dir / "Game.zip").write_bytes(b"x" * 100)
+    init_db(str(db_file))
+
+    class _FakeAddClient:
+        instance = None
+
+        def __init__(self, *args, **kwargs):
+            self.verify_calls = []
+            _FakeAddClient.instance = self
+
+        def set_file_priorities(self, *args, **kwargs):
+            pass
+
+        def start_torrent(self, *args, **kwargs):
+            pass
+
+        def verify_torrent(self, torrent_id):
+            self.verify_calls.append(torrent_id)
+
+        def request(self, method, arguments=None):
+            return {"arguments": {"torrents": [{"id": 7, "fileStats": [{"bytesCompleted": 0}]}]}}
+
+    monkeypatch.setattr("retrobridge.services.add.TransmissionClient", _FakeAddClient)
+    cfg = Config(
+        paths=PathsConfig(download_dir=dl_dir, library_dir=tmp_path / "lib", data_dir=tmp_path)
+    )
+
+    res = add_game(
+        title="Game",
+        system="SNES",
+        selected_candidates=[{
+            "torrent_id": 7,
+            "file_index": 0,
+            "file_name": "Game.zip",
+            "file_length": 100,
+            "score": 1000,
+            "lang_label": "en",
+        }],
+        config=cfg,
+        db_path=str(db_file),
+    )
+
+    assert res["verifications"] == [7]
+    assert _FakeAddClient.instance.verify_calls == [7]
+
+
+def test_sync_verifies_complete_file_with_zero_progress(tmp_path: Path, monkeypatch):
+    from retrobridge.config import Config, PathsConfig
+    from retrobridge.services.sync import run_sync
+
+    db_file = tmp_path / "sync_verify.db"
+    dl_dir = tmp_path / "downloads"
+    lib_dir = tmp_path / "library"
+    dl_dir.mkdir(parents=True)
+    (dl_dir / "Game.zip").write_bytes(b"x" * 100)
+    init_db(str(db_file))
+
+    with get_db_connection(str(db_file)) as conn:
+        conn.execute(
+            "INSERT INTO torrent_cache "
+            "(torrent_id, torrent_name, file_index, file_name, file_length, is_wanted, bytes_completed) "
+            "VALUES (7, 'Pack', 0, 'Game.zip', 100, 1, 0);"
+        )
+        conn.execute(
+            "INSERT INTO games "
+            "(title, system, state, matched_torrent_id, matched_file_index, "
+            "matched_file_path, matched_file_name) "
+            "VALUES ('Game', 'SNES', 'downloading', 7, 0, 'Game.zip', 'Game.zip');"
+        )
+        conn.commit()
+
+    instances = []
+
+    class _FakeSyncClient:
+        def __init__(self, *args, **kwargs):
+            self.verify_calls = []
+            self.start_calls = []
+            instances.append(self)
+
+        def test_connection(self):
+            return True
+
+        def request(self, method, arguments=None):
+            return {"arguments": {"torrents": [{
+                "id": 7,
+                "name": "Pack",
+                "status": 0,
+                "fileStats": [{"wanted": True, "bytesCompleted": 0}],
+            }]}}
+
+        def set_file_priorities(self, *args, **kwargs):
+            pass
+
+        def start_torrent(self, torrent_id):
+            self.start_calls.append(torrent_id)
+
+        def verify_torrent(self, torrent_id):
+            self.verify_calls.append(torrent_id)
+
+    monkeypatch.setattr("retrobridge.services.sync.TransmissionClient", _FakeSyncClient)
+    cfg = Config(
+        paths=PathsConfig(download_dir=dl_dir, library_dir=lib_dir, data_dir=tmp_path)
+    )
+
+    res = run_sync(config=cfg, db_path=str(db_file), skip_scan=True, apply=False)
+
+    assert instances and instances[0].verify_calls == [7]
+    assert any("verification requested" in action for action in res["actions"])
 
 
 def test_status_auto_sync_when_stale(tmp_path: Path, monkeypatch):

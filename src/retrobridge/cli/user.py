@@ -1020,6 +1020,12 @@ def cmd_find(
         console.print("    [dim]Run 'retrobridge sync' to (re)start the download.[/dim]")
     else:
         console.print("    [yellow]Download not started (RPC disabled).[/yellow]")
+    if result.get("verifications"):
+        tids = ", ".join(f"#{tid}" for tid in result["verifications"])
+        console.print(
+            f"  • [green]Existing file(s) verified in Transmission[/green] "
+            f"[dim](torrents {tids})[/dim]"
+        )
 
 
 @app.command("search", hidden=True)
@@ -1120,6 +1126,12 @@ def cmd_add(
             f"{res['rpc_error']}"
         )
         console.print("    [dim]Run 'retrobridge sync' to (re)start the download.[/dim]")
+    if res.get("verifications"):
+        tids = ", ".join(f"#{tid}" for tid in res["verifications"])
+        console.print(
+            f"  • [green]Existing file(s) verified in Transmission[/green] "
+            f"[dim](torrents {tids})[/dim]"
+        )
 
 class _ExportProgress:
     """Renders the `export_to_target(progress=...)` events with Rich."""

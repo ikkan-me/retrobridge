@@ -24,7 +24,7 @@ RetroBridge automates the gap between raw game downloads and ready-to-play handh
 
 <p align="center"><sub><a href="docs/retrobridge-flow.svg">Open the vector version</a></sub></p>
 
-1. **Acquire** — add a paused torrent pack, then select only the games you want. Transmission fetches the chosen files into the raw **Download-Dir**, preserving seeding.
+1. **Acquire** — add a paused torrent pack, then select only the games you want. Transmission fetches the chosen files into the raw **Download-Dir**, preserving seeding. If a selected file already exists complete on disk (re-added pack or lost `.resume`), RetroBridge asks Transmission to **verify** it instead of re-downloading it in place.
 2. **Organize** — RetroBridge indexes the packs in SQLite, scores candidates (60Hz/NTSC, revisions, languages), and creates **hard links** in the **Library-Dir**. Multi-disc games get `.m3u` playlists automatically.
 3. **Export** — only new or changed games are converted in local staging (`.chd`, `.rvz`, `.zip` extraction) and copied to the SD card targets (**ES-DE**, **Knulli**, **Batocera**).
 

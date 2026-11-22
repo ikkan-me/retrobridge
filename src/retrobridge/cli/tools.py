@@ -128,6 +128,8 @@ def tools_apply(
     console.print(f"  • Torrents modified: {res['torrents_processed']}")
     console.print(f"  • Files enabled: {res['files_wanted']}")
     console.print(f"  • Files unselected: {res['files_unwanted']}")
+    if res.get("verifications"):
+        console.print(f"  • Verifications requested: {len(res['verifications'])} torrent(s)")
     for err in res["errors"]:
         console.print(f"  [red]! {escape(str(err))}[/red]")
 
