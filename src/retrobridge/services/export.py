@@ -2,7 +2,7 @@ import shutil
 import tempfile
 import zipfile
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Callable, Dict, List, Optional
 from collections import defaultdict
 
 from retrobridge.config import Config, load_config
@@ -23,6 +23,40 @@ from retrobridge.adapters.compress import (
 
 class ExportError(Exception):
     pass
+
+
+# Copy/chunk size for byte-level progress (4 MiB).
+COPY_CHUNK_SIZE = 4 * 1024 * 1024
+
+# Files that live on the card but are not games: emulator metadata, images,
+# playlists. They must never show up as "unmanaged" files.
+CARD_NOISE_EXTENSIONS = {
+    ".txt", ".xml", ".dat", ".cfg", ".ini", ".json",
+    ".png", ".jpg", ".jpeg", ".webp", ".m3u",
+}
+
+
+def _copy_with_progress(
+    src: Path, dst: Path, on_bytes: Optional[Callable[[int, int], None]] = None
+) -> Path:
+    """Copies a file in chunks so the caller can report byte progress."""
+    total = src.stat().st_size
+    done = 0
+    with open(src, "rb") as fsrc, open(dst, "wb") as fdst:
+        while True:
+            block = fsrc.read(COPY_CHUNK_SIZE)
+            if not block:
+                break
+            fdst.write(block)
+            done += len(block)
+            if on_bytes is not None:
+                on_bytes(done, total)
+    try:
+        shutil.copystat(src, dst)
+    except OSError:
+        # Not every filesystem (exFAT/FAT) accepts every metadata change.
+        pass
+    return dst
 
 
 def _discard_staging(paths: list) -> None:
@@ -57,9 +91,15 @@ def export_to_target(
     tier: Optional[int] = None,
     raw: bool = False,
     dry_run: bool = False,
+    progress: Optional[Callable[[Dict[str, Any]], None]] = None,
     config: Optional[Config] = None,
     db_path: Optional[str] = None
 ) -> Dict[str, Any]:
+    """Incrementally exports the collection to a target.
+
+    `progress`, when given, receives plain dicts (`{"event": ...}`) so the
+    caller can render a progress bar without the service knowing about the UI.
+    """
     cfg = config or load_config()
 
     if target_name not in cfg.targets:
@@ -75,199 +115,276 @@ def export_to_target(
     profile = load_profile(target_cfg.profile)
     staging_dir = get_staging_dir()
 
-    allowed_systems = None
-    if tier:
-        allowed_systems = get_tier_systems(tier)
+    allowed_systems = get_tier_systems(tier) if tier else None
 
-    # 2. Fetch games ready for export
+    def emit(event: Dict[str, Any]) -> None:
+        if progress is None:
+            return
+        try:
+            progress(event)
+        except Exception:
+            # A broken reporter must never break an export.
+            pass
+
+    def scope_of(row_system: str) -> Optional[str]:
+        sys_k = normalize_system(row_system).lower()
+        if system and sys_k != normalize_system(system).lower():
+            return None
+        if allowed_systems is not None and sys_k not in allowed_systems:
+            return None
+        return sys_k
+
+    def new_game(row) -> Dict[str, Any]:
+        return {
+            "system": normalize_system(row["system"]),
+            "title": row["title"],
+            "discs": 0,
+            "file_count": 0,
+            "size_bytes": 0,
+            "files": [],
+            "_items": [],
+        }
+
+    planned_games: Dict[int, Dict[str, Any]] = {}
+    present_games: Dict[int, Dict[str, Any]] = {}
+    waiting_games: Dict[int, Dict[str, Any]] = {}
+    known_stems: Dict[str, set] = defaultdict(set)
+    skipped_files = 0
+
     with file_lock(cfg.paths.data_dir):
         with get_db_connection(db_path) as conn:
             backfill_game_files(conn)
             cur = conn.cursor()
-            cur.execute("""
-                SELECT g.id, g.title, g.system,
-                       gf.disc_number, gf.file_path, gf.file_name
-                FROM games g
-                JOIN game_files gf ON gf.game_id = g.id
-                WHERE g.state IN ('downloaded', 'linked')
-                ORDER BY g.id, gf.disc_number;
-            """)
-            all_files = cur.fetchall()
+            rows = cur.execute(
+                "SELECT g.id, g.title, g.system, g.state, "
+                "gf.disc_number, gf.file_path, gf.file_name, gf.file_length "
+                "FROM games g JOIN game_files gf ON gf.game_id = g.id "
+                "ORDER BY g.id, gf.disc_number;"
+            ).fetchall()
 
-            # System and tier filters
-            files_to_consider = []
-            for row in all_files:
-                sys_k = normalize_system(row["system"]).lower()
-                if system and sys_k != normalize_system(system).lower():
+            # 2. Build the plan: planned / present / waiting (+ card names)
+            for row in rows:
+                sys_k = scope_of(row["system"])
+                if sys_k is None:
                     continue
-                if allowed_systems is not None and sys_k not in allowed_systems:
-                    continue
-                files_to_consider.append(row)
-
-            # Known names (all states) for destination-only reconciliation.
-            known_stems: Dict[str, set] = defaultdict(set)
-            for row in conn.execute(
-                "SELECT g.system, gf.file_name FROM games g JOIN game_files gf ON gf.game_id = g.id;"
-            ).fetchall():
-                sys_k = normalize_system(row["system"]).lower()
-                if system and sys_k != normalize_system(system).lower():
-                    continue
-                if allowed_systems is not None and sys_k not in allowed_systems:
-                    continue
-                known_stems[sys_k].add(Path(row["file_name"] or "").stem)
-
-            # 3. Incremental check (diff against export_files and disk)
-            pending_exports = []
-            skipped_count = 0
-
-            for row in files_to_consider:
-                g_id = row["id"]
-                disc_number = row["disc_number"]
                 file_rel = row["file_path"] or row["file_name"] or ""
+                if not file_rel:
+                    continue
+                known_stems[sys_k].add(Path(file_rel).stem)
 
-                sys_k = normalize_system(row["system"]).lower()
-                sys_prof = profile.get_system(sys_k)
-                sys_subfolder = sys_prof.dir if sys_prof else sys_k
-
-                # Source: Download-Dir takes priority (needed for seeding),
-                # falling back to the Library-Dir hard link if it was removed.
-                src_path = cfg.paths.download_dir / file_rel
-                if not src_path.exists():
-                    src_path = cfg.paths.library_dir / sys_subfolder / Path(file_rel).name
-                if not src_path.is_file():
+                state = row["state"]
+                if state not in ("downloading", "downloaded", "linked"):
                     continue
 
-                dest_dir = mount_path / profile.roms_subpath / sys_subfolder
+                sys_prof = profile.get_system(sys_k)
+                sys_sub = sys_prof.dir if sys_prof else sys_k
+                file_name = Path(file_rel).name
 
-                # Export rule
+                if state == "downloading":
+                    entry = waiting_games.setdefault(row["id"], new_game(row))
+                    entry["discs"] += 1
+                    entry["file_count"] += 1
+                    entry["size_bytes"] += int(row["file_length"] or 0)
+                    entry["files"].append(file_name)
+                    continue
+
+                # Source: Download-Dir first (seeding), Library-Dir as fallback.
+                src = cfg.paths.download_dir / file_rel
+                if not src.is_file():
+                    src = cfg.paths.library_dir / sys_sub / file_name
+                if not src.is_file():
+                    continue
+
                 rule = "copy" if raw else (sys_prof.export_format if sys_prof else "copy")
-                target_ext = (sys_prof.target_ext if sys_prof and sys_prof.target_ext else Path(file_rel).suffix) if not raw else Path(file_rel).suffix
-                expected_dest_file = dest_dir / (Path(file_rel).stem + target_ext)
+                if raw:
+                    target_ext = Path(file_rel).suffix
+                elif sys_prof and sys_prof.target_ext:
+                    target_ext = sys_prof.target_ext
+                else:
+                    target_ext = Path(file_rel).suffix
 
-                # Check the export_files table
-                cur.execute(
+                dest_dir = mount_path / profile.roms_subpath / sys_sub
+                expected = dest_dir / (Path(file_rel).stem + target_ext)
+
+                recorded = cur.execute(
                     "SELECT file_size, exported_file FROM export_files "
-                    "WHERE target_id = ? AND game_id = ? AND disc_number = ?",
-                    (target_uuid, g_id, disc_number),
-                )
-                exp_row = cur.fetchone()
+                    "WHERE target_id = ? AND game_id = ? AND disc_number = ?;",
+                    (target_uuid, row["id"], row["disc_number"]),
+                ).fetchone()
 
-                if exp_row and expected_dest_file.is_file():
-                    # File already present with matching size
-                    if expected_dest_file.stat().st_size == exp_row["file_size"]:
-                        skipped_count += 1
-                        continue
+                # Reconciliation by expected name + size, not only by record:
+                # a card filled by an earlier tool still counts as "present".
+                status = "new"
+                if expected.is_file():
+                    dest_size = expected.stat().st_size
+                    if recorded and recorded["exported_file"] == str(expected):
+                        status = "present" if recorded["file_size"] == dest_size else "outdated"
+                    elif rule == "copy":
+                        status = "present" if dest_size == src.stat().st_size else "outdated"
+                    else:
+                        # Converted file, no record: accept by name (unverified).
+                        status = "unverified"
 
-                pending_exports.append({
-                    "game": row,
-                    "disc_number": disc_number,
-                    "src_path": src_path,
+                if status in ("present", "unverified"):
+                    skipped_files += 1
+                    entry = present_games.setdefault(row["id"], new_game(row))
+                    entry.setdefault("verified", True)
+                    entry["verified"] = entry["verified"] and status == "present"
+                    entry["discs"] += 1
+                    entry["file_count"] += 1
+                    entry["size_bytes"] += expected.stat().st_size
+                    entry["files"].append(expected.name)
+                    continue
+
+                src_size = src.stat().st_size
+                entry = planned_games.setdefault(row["id"], new_game(row))
+                entry.setdefault("action", rule)
+                entry.setdefault("status", status)
+                if status == "outdated":
+                    entry["status"] = "outdated"
+                entry["discs"] += 1
+                entry["file_count"] += 1
+                entry["size_bytes"] += src_size
+                entry["files"].append(expected.name)
+                entry["_items"].append({
+                    "game_id": row["id"],
+                    "disc_number": row["disc_number"],
+                    "src": src,
+                    "dest": expected,
                     "dest_dir": dest_dir,
-                    "dest_file": expected_dest_file,
                     "rule": rule,
-                    "sys_prof": sys_prof
+                    "sys_prof": sys_prof,
+                    "src_size": src_size,
                 })
 
-            # 4. Check free space on target
-            total_estimated_bytes = sum(item["src_path"].stat().st_size for item in pending_exports)
-            stat_vfs = shutil.disk_usage(mount_path)
-            if stat_vfs.free < total_estimated_bytes:
-                free_mb = round(stat_vfs.free / (1024 * 1024), 1)
+            # 3. Check free space on target (whole batch, then per game)
+            pending_items = [item for game in planned_games.values() for item in game["_items"]]
+            total_estimated_bytes = sum(item["src_size"] for item in pending_items)
+            free_bytes = shutil.disk_usage(mount_path).free
+            if free_bytes < total_estimated_bytes:
+                free_mb = round(free_bytes / (1024 * 1024), 1)
                 req_mb = round(total_estimated_bytes / (1024 * 1024), 1)
                 raise ExportError(f"Insufficient space on target '{target_name}': {free_mb} MB free, {req_mb} MB required.")
 
-            # 5. Run the export
+            emit({
+                "event": "plan",
+                "games": len(planned_games),
+                "files": len(pending_items),
+                "bytes": total_estimated_bytes,
+            })
+
+            # 4. Run the export
             exported_count = 0
-            errors = []
+            written_bytes = 0
+            errors: List[str] = []
             multidisc_tracker = defaultdict(lambda: defaultdict(list))
 
-            for item in pending_exports:
-                g = item["game"]
-                disc_number = item["disc_number"]
-                src = item["src_path"]
-                dest = item["dest_file"]
-                dest_dir = item["dest_dir"]
-                rule = item["rule"]
-                sys_prof = item["sys_prof"]
+            def on_bytes(done: int, total: int) -> None:
+                emit({"event": "bytes", "done": done, "total": total})
+
+            for index, game in enumerate(planned_games.values(), start=1):
+                items = game["_items"]
 
                 if dry_run:
-                    exported_count += 1
+                    exported_count += len(items)
                     continue
 
-                if dest_dir.is_symlink() and not dest_dir.exists():
-                    errors.append(
-                        f"Broken link to directory {dest_dir}: recreate or delete it."
-                    )
+                emit({
+                    "event": "game_start",
+                    "index": index,
+                    "total": len(planned_games),
+                    "title": game["title"],
+                    "system": game["system"],
+                    "discs": game["discs"],
+                })
+
+                if shutil.disk_usage(mount_path).free < sum(item["src_size"] for item in items):
+                    errors.append(f"Not enough space left on target '{target_name}' for {game['title']}.")
+                    emit({"event": "game_done", "index": index})
                     continue
-                if dest_dir.exists() and not dest_dir.is_dir():
-                    errors.append(f"The path {dest_dir} exists but is not a directory.")
-                    continue
 
-                dest_dir.mkdir(parents=True, exist_ok=True)
-                tmp_staging_files = []
+                for item in items:
+                    src = item["src"]
+                    dest = item["dest"]
+                    dest_dir = item["dest_dir"]
+                    rule = item["rule"]
+                    sys_prof = item["sys_prof"]
 
-                try:
-                    if rule == "copy" or raw:
-                        shutil.copy2(src, dest)
-                    elif rule == "extract":
-                        if not zipfile.is_zipfile(src):
-                            # Already in the right format (e.g. .sfc outside an archive).
-                            shutil.copy2(src, dest)
+                    if dest_dir.is_symlink() and not dest_dir.exists():
+                        errors.append(f"Broken link to directory {dest_dir}: recreate or delete it.")
+                        continue
+                    if dest_dir.exists() and not dest_dir.is_dir():
+                        errors.append(f"The path {dest_dir} exists but is not a directory.")
+                        continue
+
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    tmp_staging_files = []
+                    try:
+                        if rule == "copy" or raw:
+                            emit({"event": "phase", "phase": "copy"})
+                            _copy_with_progress(src, dest, on_bytes)
+                        elif rule == "extract":
+                            emit({"event": "phase", "phase": "extract"})
+                            if not zipfile.is_zipfile(src):
+                                _copy_with_progress(src, dest, on_bytes)
+                            else:
+                                extracted = extract_from_archive(
+                                    src, staging_dir, sys_prof.extensions if sys_prof else None
+                                )
+                                tmp_staging_files.append(extracted)
+                                emit({"event": "phase", "phase": "copy"})
+                                _copy_with_progress(extracted, dest, on_bytes)
+                        elif rule in ("chd", "rvz"):
+                            tool = "chdman" if rule == "chd" else "dolphin-tool"
+                            if src.suffix.lower() == f".{rule}" or not shutil.which(tool):
+                                # Already converted, or tool missing: plain copy.
+                                emit({"event": "phase", "phase": "copy"})
+                                _copy_with_progress(src, dest, on_bytes)
+                            else:
+                                emit({"event": "phase", "phase": "convert"})
+                                work_src = _unpack_if_archive(src, staging_dir, sys_prof, tmp_staging_files)
+                                tmp_out = staging_dir / (src.stem + f".{rule}")
+                                if rule == "chd":
+                                    is_dvd = normalize_system(game["system"]).lower() in ("ps2", "psp")
+                                    convert_to_chd(work_src, tmp_out, is_dvd=is_dvd)
+                                else:
+                                    convert_to_rvz(work_src, tmp_out)
+                                tmp_staging_files.append(tmp_out)
+                                emit({"event": "phase", "phase": "copy"})
+                                _copy_with_progress(tmp_out, dest, on_bytes)
                         else:
-                            extracted = extract_from_archive(src, staging_dir, sys_prof.extensions if sys_prof else None)
-                            tmp_staging_files.append(extracted)
-                            shutil.copy2(extracted, dest)
-                    elif rule == "chd" and src.suffix.lower() == ".chd":
-                        shutil.copy2(src, dest)
-                    elif rule == "chd":
-                        if shutil.which("chdman"):
-                            work_src = _unpack_if_archive(src, staging_dir, sys_prof, tmp_staging_files)
-                            is_dvd = (normalize_system(g["system"]).lower() in ("ps2", "psp"))
-                            tmp_chd = staging_dir / (src.stem + ".chd")
-                            convert_to_chd(work_src, tmp_chd, is_dvd=is_dvd)
-                            tmp_staging_files.append(tmp_chd)
-                            shutil.copy2(tmp_chd, dest)
-                        else:
-                            shutil.copy2(src, dest)
-                    elif rule == "rvz" and src.suffix.lower() == ".rvz":
-                        shutil.copy2(src, dest)
-                    elif rule == "rvz":
-                        if shutil.which("dolphin-tool"):
-                            work_src = _unpack_if_archive(src, staging_dir, sys_prof, tmp_staging_files)
-                            tmp_rvz = staging_dir / (src.stem + ".rvz")
-                            convert_to_rvz(work_src, tmp_rvz)
-                            tmp_staging_files.append(tmp_rvz)
-                            shutil.copy2(tmp_rvz, dest)
-                        else:
-                            shutil.copy2(src, dest)
+                            emit({"event": "phase", "phase": "copy"})
+                            _copy_with_progress(src, dest, on_bytes)
 
-                    final_size = dest.stat().st_size
-                    conn.execute("""
-                        INSERT INTO export_files
-                            (target_id, game_id, disc_number, source_file, exported_file, file_size, exported_at)
-                        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                        ON CONFLICT(target_id, game_id, disc_number) DO UPDATE SET
-                            source_file = excluded.source_file,
-                            exported_file = excluded.exported_file,
-                            file_size = excluded.file_size,
-                            exported_at = CURRENT_TIMESTAMP;
-                    """, (target_uuid, g["id"], disc_number, str(src), str(dest), final_size))
-                    conn.commit()
+                        final_size = dest.stat().st_size
+                        conn.execute("""
+                            INSERT INTO export_files
+                                (target_id, game_id, disc_number, source_file, exported_file, file_size, exported_at)
+                            VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                            ON CONFLICT(target_id, game_id, disc_number) DO UPDATE SET
+                                source_file = excluded.source_file,
+                                exported_file = excluded.exported_file,
+                                file_size = excluded.file_size,
+                                exported_at = CURRENT_TIMESTAMP;
+                        """, (target_uuid, item["game_id"], item["disc_number"], str(src), str(dest), final_size))
+                        conn.commit()
 
-                    exported_count += 1
+                        exported_count += 1
+                        written_bytes += final_size
 
-                    # Multi-disc tracking
-                    fname = dest.name
-                    if sys_prof and sys_prof.multidisc_m3u and extract_disc_number(fname):
-                        bname = get_disc_family(dest.stem)
-                        multidisc_tracker[dest_dir][bname].append(fname)
+                        # Multi-disc tracking
+                        if sys_prof and sys_prof.multidisc_m3u and extract_disc_number(dest.name):
+                            bname = get_disc_family(dest.stem)
+                            multidisc_tracker[dest_dir][bname].append(dest.name)
 
-                except Exception as e:
-                    errors.append(f"Error exporting {g['title']}: {e}")
-                finally:
-                    _discard_staging(tmp_staging_files)
+                    except Exception as e:
+                        errors.append(f"Error exporting {game['title']}: {e}")
+                    finally:
+                        _discard_staging(tmp_staging_files)
 
-            # 6. Generate .m3u files on target
+                emit({"event": "game_done", "index": index})
+
+            # 5. Generate .m3u files on target
             if not dry_run:
                 for target_dir, bases in multidisc_tracker.items():
                     for bname, disc_files in bases.items():
@@ -276,33 +393,69 @@ def export_to_target(
                             m3u_content = generate_m3u_content(disc_files)
                             m3u_path.write_text(m3u_content, encoding="utf-8")
 
-            # Files present on target with no known source counterpart.
-            destination_only = []
+            # 6. Files on the card that match no game of the collection.
+            unmanaged: List[Dict[str, Any]] = []
             for sys_k, stems in known_stems.items():
                 sys_prof = profile.get_system(sys_k)
                 sys_sub = sys_prof.dir if sys_prof else sys_k
-                dest_dir = mount_path / profile.roms_subpath / sys_sub
-                if not dest_dir.is_dir():
+                scan_dir = mount_path / profile.roms_subpath / sys_sub
+                if not scan_dir.is_dir():
                     continue
-                for path in dest_dir.rglob("*"):
-                    if not path.is_file() or path.suffix.lower() == ".m3u":
+                for path in sorted(scan_dir.rglob("*")):
+                    if not path.is_file():
                         continue
-                    if path.stem not in stems:
-                        destination_only.append({
-                            "system": normalize_system(sys_k),
-                            "file": str(path),
-                            "size_bytes": path.stat().st_size,
-                        })
+                    if path.name.startswith(".") or path.suffix.lower() in CARD_NOISE_EXTENSIONS:
+                        continue
+                    if path.stem in stems:
+                        continue
+                    unmanaged.append({
+                        "system": normalize_system(sys_k),
+                        "file": str(path),
+                        "name": path.name,
+                        "size_bytes": path.stat().st_size,
+                    })
+
+    def public(game: Dict[str, Any]) -> Dict[str, Any]:
+        return {key: value for key, value in game.items() if not key.startswith("_")}
+
+    def by_system_title(game: Dict[str, Any]) -> tuple:
+        return (game["system"], (game["title"] or "").lower())
+
+    planned_list = sorted((public(g) for g in planned_games.values()), key=by_system_title)
+    present_list = sorted((public(g) for g in present_games.values()), key=by_system_title)
+    waiting_list = sorted((public(g) for g in waiting_games.values()), key=by_system_title)
+
+    counts = {
+        "planned_games": len(planned_list),
+        "planned_files": sum(g["file_count"] for g in planned_list),
+        "planned_bytes": sum(g["size_bytes"] for g in planned_list),
+        "outdated_games": sum(1 for g in planned_list if g.get("status") == "outdated"),
+        "present_games": len(present_list),
+        "present_files": sum(g["file_count"] for g in present_list),
+        "present_bytes": sum(g["size_bytes"] for g in present_list),
+        "unmanaged_files": len(unmanaged),
+        "waiting_games": len(waiting_list),
+    }
+
+    emit({"event": "done", **counts})
 
     return {
         "target": target_name,
-        "destination_only": destination_only,
-        "uuid": target_uuid,
         "profile": target_cfg.profile,
+        "uuid": target_uuid,
+        "mount_path": str(mount_path),
+        "free_bytes": free_bytes,
         "dry_run": dry_run,
         "exported": exported_count,
-        "skipped": skipped_count,
-        "errors": errors
+        "written_bytes": written_bytes,
+        "skipped": skipped_files,
+        "counts": counts,
+        "planned": planned_list,
+        "present": present_list,
+        "unmanaged": unmanaged,
+        "destination_only": unmanaged,
+        "waiting": waiting_list,
+        "errors": errors,
     }
 
 

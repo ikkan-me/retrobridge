@@ -143,6 +143,139 @@ def _write(path: Path) -> Path:
     return path
 
 
+def _ux_fixture(tmp_path: Path) -> tuple[Config, str]:
+    """Download-Dir + DB + card with planned, present, unmanaged and waiting."""
+    dl_dir = tmp_path / "downloads"
+    lib_dir = tmp_path / "library"
+    sd = tmp_path / "sd"
+    for directory in (dl_dir, lib_dir, sd):
+        directory.mkdir(parents=True)
+
+    planned_rel = "No-Intro/Nintendo - Nintendo Entertainment System/Contra (USA).zip"
+    present_rel = "No-Intro/Nintendo - Nintendo Entertainment System/Duck Tales (USA).zip"
+    waiting_rel = "No-Intro/Sega - Mega Drive - Genesis/Sonic The Hedgehog (USA).zip"
+    for rel, inner in ((planned_rel, "Contra (USA).nes"),
+                       (present_rel, "Duck Tales (USA).nes"),
+                       (waiting_rel, "Sonic The Hedgehog (USA).md")):
+        archive = dl_dir / rel
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr(inner, b"ROM" * 1000)
+
+    nes_dir = sd / "ROMs" / "nes"
+    nes_dir.mkdir(parents=True)
+    # Already on the card, expected name (extract -> .nes): accepted by name.
+    (nes_dir / "Duck Tales (USA).nes").write_bytes(b"ROM" * 1000)
+    # Metadata that must be ignored.
+    (nes_dir / "systeminfo.txt").write_bytes(b"ignored")
+    (nes_dir / "gamelist.xml").write_bytes(b"ignored")
+    # Unmanaged: matches no game of the collection.
+    (nes_dir / "Zelda II (Europe).nes").write_bytes(b"x" * 4096)
+
+    db_path = tmp_path / "ux.db"
+    init_db(str(db_path))
+    with get_db_connection(str(db_path)) as conn:
+        for title, system, rel, state in (
+            ("Contra", "nes", planned_rel, "downloaded"),
+            ("Duck Tales", "nes", present_rel, "downloaded"),
+            ("Sonic The Hedgehog", "megadrive", waiting_rel, "downloading"),
+        ):
+            conn.execute(
+                "INSERT INTO games (title, system, state, matched_file_path, matched_file_name) "
+                "VALUES (?, ?, ?, ?, ?);",
+                (title, system, state, rel, rel),
+            )
+            game_id = conn.execute("SELECT id FROM games WHERE title = ?;", (title,)).fetchone()["id"]
+            conn.execute(
+                "INSERT INTO game_files (game_id, disc_number, file_path, file_name, file_length) "
+                "VALUES (?, 1, ?, ?, 1000);",
+                (game_id, rel, rel),
+            )
+        conn.commit()
+
+    cfg = Config(
+        paths=PathsConfig(download_dir=dl_dir, library_dir=lib_dir, data_dir=tmp_path),
+        targets={"sd": TargetConfig(name="sd", profile="esde", mount_path=sd, uuid="uuid")},
+    )
+    return cfg, str(db_path)
+
+
+def test_export_plan_reconciles_present_unmanaged_and_waiting(tmp_path: Path):
+    cfg, db_path = _ux_fixture(tmp_path)
+
+    res = export_module.export_to_target("sd", config=cfg, db_path=db_path, dry_run=True)
+
+    counts = res["counts"]
+    assert counts["planned_games"] == 1
+    assert counts["present_games"] == 1
+    assert counts["unmanaged_files"] == 1
+    assert counts["waiting_games"] == 1
+    assert [g["title"] for g in res["planned"]] == ["Contra"]
+    assert [g["title"] for g in res["present"]] == ["Duck Tales"]
+    # Converted/extracted file with no record: present, but flagged unverified.
+    assert res["present"][0]["verified"] is False
+    assert [u["name"] for u in res["unmanaged"]] == ["Zelda II (Europe).nes"]
+    assert res["destination_only"] == res["unmanaged"]
+    assert [g["title"] for g in res["waiting"]] == ["Sonic The Hedgehog"]
+
+
+def test_export_ignores_metadata_files_on_the_card(tmp_path: Path):
+    cfg, db_path = _ux_fixture(tmp_path)
+
+    res = export_module.export_to_target("sd", config=cfg, db_path=db_path, dry_run=True)
+
+    names = {item["name"] for item in res["unmanaged"]}
+    assert "systeminfo.txt" not in names
+    assert "gamelist.xml" not in names
+
+
+def test_export_emits_progress_events_during_conversion(tmp_path: Path, monkeypatch):
+    cfg, db_path = _export_fixture(tmp_path)
+    events: list[dict] = []
+    monkeypatch.setattr(
+        export_module,
+        "convert_to_chd",
+        lambda source, output, is_dvd=False: _write(output),
+    )
+
+    res = export_module.export_to_target(
+        "sd", system="psx", config=cfg, db_path=db_path, progress=events.append
+    )
+
+    kinds = [event["event"] for event in events]
+    assert kinds[0] == "plan"
+    assert kinds[-1] == "done"
+    assert "game_start" in kinds and "game_done" in kinds
+    phases = [event["phase"] for event in events if event["event"] == "phase"]
+    assert "convert" in phases and "copy" in phases
+    assert res["exported"] == 1
+
+
+def test_export_cli_renders_the_plan_like_status(tmp_path: Path, monkeypatch):
+    cfg, db_path = _ux_fixture(tmp_path)
+    real_export = export_module.export_to_target
+    fixed_db = db_path
+
+    def wrapped(target_name, system=None, tier=None, raw=False, dry_run=False, db_path=None):
+        return real_export(
+            target_name=target_name, system=system, tier=tier,
+            raw=raw, dry_run=dry_run, config=cfg, db_path=fixed_db,
+        )
+
+    monkeypatch.setattr(user_cli, "export_to_target", wrapped)
+
+    result = runner.invoke(user_cli.app, ["export", "sd", "--dry-run"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "Export Plan" in result.stdout
+    assert "Downloaded 2 − present 1 = 1 to copy" in result.stdout
+    for heading in ("Planned —", "Present —", "Unmanaged on card —", "Waiting —"):
+        assert heading in result.stdout
+    assert "Zelda II (Europe).nes" in result.stdout
+    # Full lists: no truncation marker.
+    assert "… and" not in result.stdout
+
+
 def test_export_cli_reports_bracketed_errors_without_markup_crash(monkeypatch):
     def fake_export(**kwargs):
         return {

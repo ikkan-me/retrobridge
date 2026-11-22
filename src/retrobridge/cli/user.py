@@ -3,13 +3,14 @@ import time
 from itertools import groupby
 from pathlib import Path
 import typer
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
 from rich.text import Text
 from rich.markup import escape
+from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
 from retrobridge.services.catalog import list_games
 from retrobridge.services.status import get_system_status
@@ -1120,6 +1121,220 @@ def cmd_add(
         )
         console.print("    [dim]Run 'retrobridge sync' to (re)start the download.[/dim]")
 
+class _ExportProgress:
+    """Renders the `export_to_target(progress=...)` events with Rich."""
+
+    def __init__(self, console: Console):
+        self.console = console
+        self.progress = Progress(
+            TextColumn("[bold]{task.description}", justify="left"),
+            BarColumn(bar_width=None),
+            TextColumn("{task.fields[right]}", justify="right"),
+            TimeElapsedColumn(),
+            console=console,
+            transient=True,
+        )
+        self.overall: Optional[int] = None
+        self.current: Optional[int] = None
+        self.games_total = 0
+        self.games_done = 0
+
+    def __enter__(self) -> "_ExportProgress":
+        self.progress.start()
+        return self
+
+    def __exit__(self, *exc: Any) -> None:
+        self.progress.stop()
+
+    def __call__(self, event: Dict[str, Any]) -> None:
+        kind = event.get("event")
+        if kind == "plan":
+            self.games_total = int(event.get("games") or 0)
+            self.overall = self.progress.add_task(
+                "Overall", total=self.games_total, right=f"0/{self.games_total} games"
+            )
+        elif kind == "game_start":
+            label = f"{event.get('system', '?')} · {event.get('title', '')}"
+            if self.current is None:
+                self.current = self.progress.add_task(label, total=None, right="starting…")
+            self.progress.update(self.current, description=label, total=None, completed=0, right="starting…")
+        elif kind == "phase":
+            phase = event.get("phase")
+            label = {"convert": "converting…", "extract": "extracting…", "copy": "copying…"}.get(phase, str(phase))
+            if self.current is not None:
+                self.progress.update(self.current, right=label)
+        elif kind == "bytes":
+            if self.current is not None:
+                done = int(event.get("done") or 0)
+                total = int(event.get("total") or 0)
+                self.progress.update(
+                    self.current,
+                    total=total or None,
+                    completed=done,
+                    right=f"{format_size_compact(done)} / {format_size_compact(total)}",
+                )
+        elif kind == "game_done":
+            self.games_done += 1
+            if self.overall is not None:
+                self.progress.update(
+                    self.overall, advance=1,
+                    right=f"{self.games_done}/{self.games_total} games",
+                )
+            if self.current is not None:
+                self.progress.update(self.current, right="done")
+
+
+def _export_counts(res: Dict[str, Any]) -> Dict[str, int]:
+    """Counts, computed from the lists when the payload is partial (tests)."""
+    counts = dict(res.get("counts") or {})
+    planned = res.get("planned") or []
+    present = res.get("present") or []
+    unmanaged = res.get("unmanaged") or res.get("destination_only") or []
+    waiting = res.get("waiting") or []
+    counts.setdefault("planned_games", len(planned))
+    counts.setdefault("planned_files", sum(g.get("file_count", 0) for g in planned))
+    counts.setdefault("planned_bytes", sum(g.get("size_bytes", 0) for g in planned))
+    counts.setdefault("outdated_games", 0)
+    counts.setdefault("present_games", len(present))
+    counts.setdefault("present_files", sum(g.get("file_count", 0) for g in present))
+    counts.setdefault("unmanaged_files", len(unmanaged))
+    counts.setdefault("waiting_games", len(waiting))
+    return counts
+
+
+def _render_export(res: Dict[str, Any], no_warn: bool = False) -> None:
+    """Export report: same visual grammar as `status` (panel + tables)."""
+    counts = _export_counts(res)
+    mode = "[yellow](DRY RUN)[/yellow] " if res.get("dry_run") else ""
+    console.print(
+        f"{mode}[bold green]Export → '{escape(str(res.get('target', '?')))}'[/bold green]"
+        f"   ·   Profile: {escape(str(res.get('profile', '?')))}"
+        f" (UUID: {escape(str(res.get('uuid', '?'))[:8])}…)"
+    )
+    if res.get("mount_path"):
+        console.print(
+            f"[dim]Card: {escape(str(res['mount_path']))} "
+            f"({format_size(res.get('free_bytes') or 0)} free)[/dim]"
+        )
+
+    console.print(Panel(
+        f"[bold cyan]Planned:[/bold cyan] {counts['planned_games']}   "
+        f"[bold green]Present:[/bold green] {counts['present_games']}   "
+        f"[bold yellow]Unmanaged:[/bold yellow] {counts['unmanaged_files']}   "
+        f"[bold white]Waiting:[/bold white] {counts['waiting_games']}",
+        title="[bold]📤 Export Plan[/bold]",
+    ))
+    downloaded = counts["planned_games"] + counts["present_games"]
+    arithmetic = (
+        f"Downloaded {downloaded} − present {counts['present_games']} = "
+        f"{counts['planned_games']} to copy "
+        f"({counts['planned_files']} file(s), {format_size(counts['planned_bytes'])} source)"
+    )
+    if counts["outdated_games"]:
+        arithmetic += f" · [yellow]{counts['outdated_games']} outdated[/yellow]"
+    console.print(arithmetic)
+
+    planned = res.get("planned") or []
+    if planned:
+        table = Table(
+            title=f"Planned — {counts['planned_games']} game(s), {counts['planned_files']} file(s)",
+            expand=True,
+        )
+        table.add_column("System", style="cyan bold", no_wrap=True, min_width=8)
+        table.add_column("Game", style="bold white", ratio=1, overflow="fold")
+        table.add_column("Discs", justify="right", no_wrap=True, width=5)
+        table.add_column("Size", justify="right", no_wrap=True, width=10)
+        table.add_column("Action", justify="right", no_wrap=True, width=14)
+        for game in planned:
+            action = str(game.get("action", "copy"))
+            if game.get("status") == "outdated":
+                action += " · replace"
+            table.add_row(
+                escape(str(game.get("system", "?"))),
+                escape(str(game.get("title", "?"))),
+                str(game.get("discs", 0)),
+                format_size_compact(game.get("size_bytes", 0)),
+                action,
+            )
+        console.print(table)
+
+    present = res.get("present") or []
+    if present:
+        table = Table(
+            title=f"Present — {counts['present_games']} game(s) already on the card",
+            expand=True,
+        )
+        table.add_column("System", style="cyan bold", no_wrap=True, min_width=8)
+        table.add_column("Game", style="bold white", ratio=1, overflow="fold")
+        table.add_column("Discs", justify="right", no_wrap=True, width=5)
+        table.add_column("Size", justify="right", no_wrap=True, width=10)
+        for game in present:
+            title = Text(escape(str(game.get("title", "?"))))
+            if game.get("verified") is False:
+                title.append("  (unverified)", style="dim")
+            table.add_row(
+                escape(str(game.get("system", "?"))),
+                title,
+                str(game.get("discs", 0)),
+                format_size_compact(game.get("size_bytes", 0)),
+            )
+        console.print(table)
+
+    unmanaged = res.get("unmanaged") or res.get("destination_only") or []
+    if unmanaged:
+        table = Table(
+            title=f"Unmanaged on card — {len(unmanaged)} file(s) (never deleted)",
+            expand=True,
+        )
+        table.add_column("System", style="cyan bold", no_wrap=True, min_width=8)
+        table.add_column("File", style="dim", ratio=1, overflow="fold")
+        table.add_column("Size", justify="right", no_wrap=True, width=10)
+        for item in unmanaged:
+            name = item.get("name") or basename(item.get("file"))
+            table.add_row(
+                escape(str(item.get("system", "?"))),
+                escape(str(name)),
+                format_size_compact(item.get("size_bytes", 0)),
+            )
+        console.print(table)
+
+    waiting = res.get("waiting") or []
+    if waiting:
+        table = Table(
+            title=f"Waiting — {counts['waiting_games']} game(s) not downloaded yet",
+            expand=True,
+        )
+        table.add_column("System", style="cyan bold", no_wrap=True, min_width=8)
+        table.add_column("Game", style="bold white", ratio=1, overflow="fold")
+        table.add_column("Discs", justify="right", no_wrap=True, width=5)
+        table.add_column("Size", justify="right", no_wrap=True, width=10)
+        for game in waiting:
+            table.add_row(
+                escape(str(game.get("system", "?"))),
+                escape(str(game.get("title", "?"))),
+                str(game.get("discs", 0)),
+                format_size_compact(game.get("size_bytes", 0)),
+            )
+        console.print(table)
+        if not no_warn:
+            console.print(
+                f"[bold yellow]⚠ {counts['waiting_games']} game(s) are still downloading — "
+                "they will not be exported.[/bold yellow]"
+            )
+            console.print("[dim]  retrobridge status   (--no-warn to silence)[/dim]")
+
+    if not res.get("dry_run"):
+        console.print(
+            f"[bold green]Exported:[/bold green] {res.get('exported', 0)} file(s) · "
+            f"[bold]{format_size(res.get('written_bytes') or 0)}[/bold] written"
+        )
+
+    if res.get("errors"):
+        console.print("[bold red]Errors encountered:[/bold red]")
+        for err in res["errors"]:
+            console.print(f"  [red]! {escape(str(err))}[/red]")
+
+
 @app.command("export")
 def cmd_export(
     target: str = typer.Argument(..., help="Name of the configured target (SD card)"),
@@ -1127,20 +1342,40 @@ def cmd_export(
     tier: Optional[int] = typer.Option(None, "--tier", "-t", help="Filter by tier (1=classic 2D, 2=early 3D, 3=PS2 and up)"),
     raw: bool = typer.Option(False, "--raw", help="Copy raw files without format conversion"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Simulate the export without copying"),
+    no_warn: bool = typer.Option(False, "--no-warn", help="Do not warn about games still downloading"),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="No output except errors"),
     as_json: bool = typer.Option(False, "--json", help="Raw JSON output"),
     db_path: Optional[str] = typer.Option(None, "--db", help="Alternative path to the database")
 ):
     """Incrementally export the collection to a target (SD card)."""
+    show_progress = (not as_json) and (not quiet) and (not dry_run) and console.is_terminal
     try:
-        res = export_to_target(
-            target_name=target,
-            system=system,
-            tier=tier,
-            raw=raw,
-            dry_run=dry_run,
-            db_path=db_path
-        )
+        if show_progress:
+            with _ExportProgress(console) as reporter:
+                res = export_to_target(
+                    target_name=target,
+                    system=system,
+                    tier=tier,
+                    raw=raw,
+                    dry_run=dry_run,
+                    progress=reporter,
+                    db_path=db_path,
+                )
+        else:
+            res = export_to_target(
+                target_name=target,
+                system=system,
+                tier=tier,
+                raw=raw,
+                dry_run=dry_run,
+                db_path=db_path
+            )
+    except LockError as e:
+        if as_json:
+            typer.echo(json.dumps({"error": str(e)}))
+        elif not quiet:
+            console.print(f"[bold yellow]{escape(str(e))}[/bold yellow]")
+        raise typer.Exit(code=1)
     except ExportError as e:
         if as_json:
             typer.echo(json.dumps({"error": str(e)}))
@@ -1154,24 +1389,4 @@ def cmd_export(
     if quiet:
         return
 
-    mode = "[yellow](DRY RUN)[/yellow] " if res["dry_run"] else ""
-    console.print(f"{mode}[bold green]Export to '{res['target']}' complete.[/bold green]")
-    console.print(f"  • Profile: {res['profile']} (UUID: {res['uuid'][:8]}...)")
-    console.print(f"  • Games exported / converted: [bold cyan]{res['exported']}[/bold cyan]")
-    console.print(f"  • Games skipped (already up to date): [dim]{res['skipped']}[/dim]")
-
-    extra = res.get("destination_only") or []
-    if extra:
-        console.print(
-            f"\n[bold cyan]Info:[/bold cyan] {len(extra)} file(s) present only on the target "
-            "[dim](not deleted)[/dim]"
-        )
-        for item in extra[:20]:
-            console.print(f"  [dim]• {escape(str(item['system']))} : {escape(str(item['file']))}[/dim]")
-        if len(extra) > 20:
-            console.print(f"  [dim]... and {len(extra) - 20} more.[/dim]")
-
-    if res["errors"]:
-        console.print("[bold red]Errors encountered:[/bold red]")
-        for err in res["errors"]:
-            console.print(f"  [red]! {escape(str(err))}[/red]")
+    _render_export(res, no_warn=no_warn)

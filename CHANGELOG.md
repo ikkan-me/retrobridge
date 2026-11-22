@@ -16,10 +16,21 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `tools verify` without an argument targets errored or corrupt torrents.
 - `tools bios` points to RetroBios without duplicating its catalog.
 - Export reports files present only on the SD card, without deleting them.
+- Export reports every game: an **Export Plan** panel (planned / present /
+  unmanaged / waiting) with full, untruncated `status`-style tables, then a
+  live progress bar (overall games + current operation with byte progress
+  for copies).
+- Export reconciles the card by expected name + size, so a card filled by an
+  earlier tool is not re-converted from scratch.
+- New `--no-warn` flag silences the "still downloading" notice.
 - First stable release: pack import, scored selection, hard links, SD export.
 
 ### Fixed
 
+- Card metadata (`systeminfo.txt`, `gamelist.xml`, images…) is no longer
+  reported as unmanaged files.
+- Export prints a clean message instead of a traceback when another
+  RetroBridge command (timer) holds the lock.
 - Multi-disc games whose disc names carry a per-disc subtitle
   (`(Disc 1) (Subsistence)`, `(Disc 2) (Persistence)`) now select every disc
   and generate the matching `.m3u` playlist.
