@@ -12,7 +12,7 @@ from retrobridge.config import Config, PathsConfig, TargetConfig  # noqa: E402
 from retrobridge.services import add as add_service  # noqa: E402
 from retrobridge.services import status as status_service  # noqa: E402
 from retrobridge.services.export import export_to_target  # noqa: E402
-from retrobridge.services.find import expand_disc_candidates  # noqa: E402
+from retrobridge.services.find import expand_disc_candidates, find_existing_game  # noqa: E402
 from retrobridge.services.sync import run_sync  # noqa: E402
 from retrobridge.storage.db import (  # noqa: E402
     backfill_game_files,
@@ -165,6 +165,46 @@ def test_export_all_discs_and_m3u(tmp_path):
     assert m3u.is_file()
     with get_db_connection(str(db_path)) as conn:
         assert conn.execute("SELECT COUNT(*) AS n FROM export_files;").fetchone()["n"] == 2
+
+
+def test_find_expands_discs_with_per_disc_subtitles(tmp_path):
+    """Redump names such as `(Disc 2) (Persistence)` belong to the same game."""
+    db_path = tmp_path / "add_multi_subtitles.db"
+    init_db(str(db_path))
+    names = [
+        "Metal Gear Solid 3 - Subsistence (USA) (En,Es) (Disc 1) (Subsistence).zip",
+        "Metal Gear Solid 3 - Subsistence (USA) (En,Es) (Disc 2) (Persistence).zip",
+        "Metal Gear Solid 3 - Subsistence (USA) (En,Es) (Disc 3) (Existence) (Limited Edition).zip",
+    ]
+    with get_db_connection(str(db_path)) as conn:
+        conn.executemany(
+            "INSERT INTO torrent_cache (torrent_id, torrent_name, file_index, file_name, file_length, bytes_completed) "
+            "VALUES (99, 'Minerva_Myrient/Redump/Sony - PlayStation 2', ?, ?, 100, 100);",
+            [(index, name) for index, name in enumerate(names)],
+        )
+        conn.commit()
+
+    candidate = {
+        "torrent_id": 99,
+        "file_index": 0,
+        "file_name": names[0],
+        "file_length": 100,
+        "size_mb": 0.0,
+        "score": 1000,
+        "lang_label": "US 60Hz",
+    }
+    discs = expand_disc_candidates(candidate, "ps2", db_path=str(db_path))
+    assert [d["file_index"] for d in discs] == [0, 1, 2]
+
+    # A disc suffix in the query must not hide an existing game.
+    with get_db_connection(str(db_path)) as conn:
+        conn.execute(
+            "INSERT INTO games (title, system, state, matched_file_name) VALUES "
+            "('Metal Gear Solid 3 - Subsistence', 'ps2', 'downloading', ?);",
+            (names[0],),
+        )
+        conn.commit()
+    assert find_existing_game("Metal Gear Solid 3 - Subsistence Disk 2", "ps2", db_path=str(db_path))
 
 
 def test_status_aggregates_discs(tmp_path):

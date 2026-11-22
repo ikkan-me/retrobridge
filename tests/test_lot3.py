@@ -3,7 +3,13 @@ from typer.testing import CliRunner
 
 from retrobridge.config import Config, PathsConfig
 from retrobridge.storage.db import init_db, get_db_connection
-from retrobridge.domain.multidisc import extract_disc_number, get_base_title, generate_m3u_content
+from retrobridge.domain.multidisc import (
+    extract_disc_number,
+    get_base_title,
+    get_disc_family,
+    get_disc_search_title,
+    generate_m3u_content,
+)
 from retrobridge.services.pin import set_game_pin
 from retrobridge.services.removal import request_removal
 from retrobridge.services.sync import run_sync
@@ -17,6 +23,10 @@ def test_multidisc_domain():
     assert extract_disc_number(f1) == 1
     assert extract_disc_number(f2) == 2
     assert get_base_title("Final Fantasy VII (USA) (Disc 1)") == "Final Fantasy VII (USA)"
+
+    f3 = "Metal Gear Solid 3 - Subsistence (USA) (En,Es) (Disc 2) (Persistence)"
+    assert get_disc_family(f3) == "Metal Gear Solid 3 - Subsistence (USA) (En,Es)"
+    assert get_disc_search_title(f3) == "Metal Gear Solid 3 - Subsistence"
 
     m3u = generate_m3u_content([f2, f1])
     assert m3u == f"{f1}\n{f2}\n"

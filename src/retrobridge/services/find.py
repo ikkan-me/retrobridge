@@ -5,7 +5,12 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from retrobridge.config import Config, load_config
-from retrobridge.domain.multidisc import extract_disc_number, get_base_title
+from retrobridge.domain.multidisc import (
+    extract_disc_number,
+    get_base_title,
+    get_disc_family,
+    get_disc_search_title,
+)
 from retrobridge.domain.regions import classify_region
 from retrobridge.domain.scoring import normalize_text
 from retrobridge.domain.systems import normalize_system
@@ -19,9 +24,13 @@ def find_existing_game(
     system: str,
     db_path: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Finds a game by normalized title + system (accent-insensitive)."""
+    """Finds a game by normalized title + system (accent-insensitive).
+
+    A disc suffix in the query (`... Disk 2`) is ignored so that a
+    multi-disc game is still recognized as already present.
+    """
     canonical = normalize_system(system)
-    wanted_key = normalize_text(title)
+    wanted_key = normalize_text(get_base_title(title))
     with get_db_connection(db_path) as conn:
         rows = conn.execute(
             "SELECT id, title, system, state, matched_file_name, matched_file_path, "
@@ -54,6 +63,19 @@ def refresh_cache_if_needed(
     return {"ran": True, "reason": "stale", **result}
 
 
+def same_disc_family(first: Dict[str, Any], second: Dict[str, Any]) -> bool:
+    """True when two candidates are discs of the same release."""
+    first_name = first.get("file_name") or ""
+    second_name = second.get("file_name") or ""
+    if extract_disc_number(Path(first_name).name) is None:
+        return False
+    if extract_disc_number(Path(second_name).name) is None:
+        return False
+    return normalize_text(get_disc_family(Path(first_name).stem)) == normalize_text(
+        get_disc_family(Path(second_name).stem)
+    )
+
+
 def expand_disc_candidates(
     candidate: Dict[str, Any],
     system: str,
@@ -66,18 +88,25 @@ def expand_disc_candidates(
     if disc is None:
         return [candidate]
 
-    base = get_base_title(Path(file_name).stem)
-    base_key = normalize_text(base)
+    stem = Path(file_name).stem
+    family_key = normalize_text(get_disc_family(stem))
+    base_key = normalize_text(get_base_title(stem))
     region = classify_region(file_name)
     cfg = config or load_config()
 
-    candidates = search_candidates(query=base, system=system, config=cfg, db_path=db_path)
+    # Search on the main title only: disc subtitles such as
+    # `(Subsistence)` / `(Persistence)` must not restrict the query.
+    query = get_disc_search_title(stem)
+    candidates = search_candidates(query=query, system=system, config=cfg, db_path=db_path)
     by_disc: Dict[int, Dict[str, Any]] = {}
     for item in candidates:
+        item_stem = Path(item["file_name"]).stem
         other_disc = extract_disc_number(Path(item["file_name"]).name)
         if other_disc is None:
             continue
-        if normalize_text(get_base_title(Path(item["file_name"]).stem)) != base_key:
+        item_family_key = normalize_text(get_disc_family(item_stem))
+        item_base_key = normalize_text(get_base_title(item_stem))
+        if item_family_key != family_key and item_base_key != base_key:
             continue
         if region != "UNKNOWN" and classify_region(item["file_name"]) != region:
             continue

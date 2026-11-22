@@ -17,3 +17,11 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - `tools bios` points to RetroBios without duplicating its catalog.
 - Export reports files present only on the SD card, without deleting them.
 - First stable release: pack import, scored selection, hard links, SD export.
+
+### Fixed
+
+- Multi-disc games whose disc names carry a per-disc subtitle
+  (`(Disc 1) (Subsistence)`, `(Disc 2) (Persistence)`) now select every disc
+  and generate the matching `.m3u` playlist.
+- `find` recognizes a game that is already present even when the query
+  includes a disc suffix (`... Disk 2`).

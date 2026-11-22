@@ -10,7 +10,7 @@ from retrobridge.profiles.loader import load_profile
 from retrobridge.services.scan import scan_torrents
 from retrobridge.services.apply import apply_selection
 from retrobridge.adapters.transmission import TransmissionClient
-from retrobridge.domain.multidisc import extract_disc_number, get_base_title, generate_m3u_content
+from retrobridge.domain.multidisc import extract_disc_number, get_disc_family, generate_m3u_content
 from retrobridge.domain.systems import normalize_system
 
 def run_sync(
@@ -302,7 +302,7 @@ def run_sync(
                     dest_path = dest_dir / fname
 
                     if sys_prof and sys_prof.multidisc_m3u and extract_disc_number(fname):
-                        base_name = get_base_title(Path(fname).stem)
+                        base_name = get_disc_family(Path(fname).stem)
                         multidisc_tracker[sys_key][base_name].append(fname)
 
                     if dest_path.exists():

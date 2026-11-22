@@ -98,6 +98,35 @@ def test_refresh_cache_stale_triggers_scan(tmp_path, monkeypatch):
     assert result["torrents_count"] == 2
 
 
+def test_find_yes_selects_every_disc_with_subtitles(tmp_path, monkeypatch):
+    db_path = tmp_path / "multi_subtitles.db"
+    init_db(str(db_path))
+    names = [
+        "Metal Gear Solid 3 - Subsistence (USA) (En,Es) (Disc 1) (Subsistence).zip",
+        "Metal Gear Solid 3 - Subsistence (USA) (En,Es) (Disc 2) (Persistence).zip",
+        "Metal Gear Solid 3 - Subsistence (USA) (En,Es) (Disc 3) (Existence) (Limited Edition).zip",
+    ]
+    with get_db_connection(str(db_path)) as conn:
+        conn.executemany(
+            "INSERT INTO torrent_cache (torrent_id, torrent_name, file_index, file_name, file_length, bytes_completed) "
+            "VALUES (99, 'Minerva_Myrient/Redump/Sony - PlayStation 2', ?, ?, ?, 0);",
+            [(index, name, 1000 + index) for index, name in enumerate(names)],
+        )
+        conn.commit()
+    monkeypatch.setattr(user_cli, "refresh_cache_if_needed", lambda *args, **kwargs: {"ran": False, "reason": "fresh"})
+
+    result = runner.invoke(
+        user_cli.app,
+        [
+            "find", "Metal Gear Solid 3 - Subsistence", "-s", "ps2",
+            "--add", "--yes", "--dry-run", "--no-refresh", "--db", str(db_path),
+        ],
+    )
+    assert result.exit_code == 0, result.stdout
+    assert "Multi-disc:" in result.stdout
+    assert "3 discs will be selected" in result.stdout
+
+
 def test_find_readonly_does_not_add(tmp_path, monkeypatch):
     db_path = tmp_path / "readonly.db"
     _seed_find_db(db_path)

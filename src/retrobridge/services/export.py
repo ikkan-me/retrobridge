@@ -10,7 +10,7 @@ from retrobridge.storage.lock import file_lock
 from retrobridge.profiles.loader import load_profile
 from retrobridge.domain.tiers import get_tier_systems
 from retrobridge.domain.target import ensure_target_uuid
-from retrobridge.domain.multidisc import extract_disc_number, get_base_title, generate_m3u_content
+from retrobridge.domain.multidisc import extract_disc_number, get_disc_family, generate_m3u_content
 from retrobridge.domain.systems import normalize_system
 from retrobridge.adapters.compress import get_staging_dir, extract_from_archive, convert_to_chd, convert_to_rvz
 
@@ -236,7 +236,7 @@ def export_to_target(
                     # Multi-disc tracking
                     fname = dest.name
                     if sys_prof and sys_prof.multidisc_m3u and extract_disc_number(fname):
-                        bname = get_base_title(dest.stem)
+                        bname = get_disc_family(dest.stem)
                         multidisc_tracker[dest_dir][bname].append(fname)
 
                 except Exception as e:

@@ -23,7 +23,12 @@ from retrobridge.storage.lock import LockError
 from retrobridge.services.removal import request_removal
 from retrobridge.services.pin import set_game_pin
 from retrobridge.services.search import search_candidates, _title_match_bonus
-from retrobridge.services.find import expand_disc_candidates, find_existing_game, refresh_cache_if_needed
+from retrobridge.services.find import (
+    expand_disc_candidates,
+    find_existing_game,
+    refresh_cache_if_needed,
+    same_disc_family,
+)
 from retrobridge.services.add import add_game, AddGameError
 from retrobridge.services.export import export_to_target, ExportError
 from retrobridge.config import LANGUAGE_NAMES, TargetConfig, load_config, normalize_languages, save_config
@@ -920,11 +925,20 @@ def cmd_find(
                 console.print(f"[bold red]Error:[/bold red] {message}")
             raise typer.Exit(code=1)
         if len(candidates) > 1:
-            second = candidates[1]
-            if second["score"] == selected["score"] and second["match_bonus"] == selected["match_bonus"]:
+            tie = next(
+                (
+                    candidate
+                    for candidate in candidates[1:]
+                    if candidate["score"] == selected["score"]
+                    and candidate["match_bonus"] == selected["match_bonus"]
+                    and not same_disc_family(selected, candidate)
+                ),
+                None,
+            )
+            if tie is not None:
                 message = "Two candidates are tied. Rerun without --yes to choose."
                 if as_json:
-                    typer.echo(json.dumps({"error": message, "candidates": candidates[:2]}, ensure_ascii=False))
+                    typer.echo(json.dumps({"error": message, "candidates": [selected, tie]}, ensure_ascii=False))
                 else:
                     console.print(f"[bold red]Error:[/bold red] {message}")
                 raise typer.Exit(code=1)
@@ -957,6 +971,8 @@ def cmd_find(
     if dry_run:
         if as_json:
             typer.echo(json.dumps({"dry_run": True, "candidate": selected, "discs": discs, "existing": existing, "refresh": refresh_info}, indent=2, ensure_ascii=False))
+        elif len(discs) > 1:
+            console.print(f"[bold]Simulated add:[/bold] {query} ({len(discs)} discs)")
         else:
             rom_display = selected["file_name"] if full_path else basename(selected["file_name"])
             console.print(f"[bold]Simulated add:[/bold] {rom_display}")
