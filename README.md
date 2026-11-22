@@ -6,6 +6,12 @@
 
 RetroBridge automates the gap between raw game downloads and ready-to-play handhelds. It seamlessly links Transmission torrent packs to an organized local library via hard links, and syncs curated setups directly to your ES-DE, Knulli, or Batocera targets.
 
+<p align="center">
+  <img src="docs/retrobridge-status.png" alt="Example retrobridge status output: collection state, per-system completeness and active downloads" width="100%">
+</p>
+
+<p align="center"><sub>Example output of <code>retrobridge status</code> — collection state, per-system completeness and active downloads.</sub></p>
+
 > ⚠️ **Legal notice** — RetroBridge is a local organization and automation tool. It does not provide, host, or distribute any game, game file, BIOS, or other copyrighted material. Torrent packs, game files, and BIOS used with it come exclusively from third-party sources chosen by the user; the user must hold the necessary rights (owned games, BIOS licenses, local law). The author accepts no liability for how the tool is used. RetroBridge is not affiliated with Nintendo, Sony, Sega, Microsoft, or any publisher or rights holder.
 
 ---
@@ -94,12 +100,6 @@ retrobridge status --no-refresh   # do not trigger an automatic sync
 ```
 
 If the last sync is **older than 10 minutes**, `status` automatically runs a `sync` before rendering (independently of the systemd timer). The delay is configurable via `[ttl] status_ttl` (600 s by default).
-
-<p align="center">
-  <img src="docs/retrobridge-status.png" alt="Example retrobridge status output: collection state, per-system completeness and active downloads" width="100%">
-</p>
-
-<p align="center"><sub>Example output of <code>retrobridge status</code> — collection state, per-system completeness and active downloads.</sub></p>
 
 ### 2. `retrobridge find <search> -s <system>`
 Searches the torrent cache, checks cache freshness, and lets you add the game:
