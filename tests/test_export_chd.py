@@ -45,6 +45,41 @@ def test_extract_disc_set_pulls_cue_and_bin_tracks(tmp_path: Path):
     assert not (dest / "readme.txt").exists()
 
 
+def test_unpack_rvz_archive_selects_the_rvz(tmp_path: Path):
+    from types import SimpleNamespace
+    from retrobridge.services.export import _unpack_if_archive
+
+    archive = tmp_path / "gamecube.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("Metroid Prime (USA) (Rev 2).rvz", b"RVZ" * 100)
+        zf.writestr("readme.txt", "not a disc image")
+
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    profile = SimpleNamespace(extensions=[".rvz", ".iso", ".gcm"])
+
+    extracted = _unpack_if_archive(archive, staging, profile, [])
+
+    assert extracted.name == "Metroid Prime (USA) (Rev 2).rvz"
+    assert extracted.read_bytes() == b"RVZ" * 100
+
+
+def test_unpack_disc_set_archive_still_extracts_tracks(tmp_path: Path):
+    from types import SimpleNamespace
+    from retrobridge.services.export import _unpack_if_archive
+
+    archive = tmp_path / "disc.zip"
+    _make_disc_zip(archive, "Vagrant Story (USA)", tracks=2)
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    profile = SimpleNamespace(extensions=[".cue", ".bin"])
+
+    extracted = _unpack_if_archive(archive, staging, profile, [])
+
+    assert extracted.name == "Vagrant Story (USA).cue"
+    assert len(list(extracted.parent.glob("*.bin"))) == 2
+
+
 def test_convert_to_chd_times_out_on_malformed_image(tmp_path: Path, monkeypatch):
     """chdman can loop forever on a truncated image: bounded by a timeout."""
     if not shutil.which("chdman"):
@@ -116,6 +151,61 @@ def test_export_converts_the_cue_with_its_tracks(tmp_path: Path, monkeypatch):
     assert seen["source"].name == "Vagrant Story (USA).cue"
     assert seen["bin_exists"] is True
     assert (tmp_path / "sd" / "ROMs" / "psx" / "Vagrant Story (USA).chd").is_file()
+
+
+def _gamecube_fixture(tmp_path: Path) -> tuple[Config, str]:
+    dl_dir = tmp_path / "downloads"
+    lib_dir = tmp_path / "library"
+    sd = tmp_path / "sd"
+    for directory in (dl_dir, lib_dir, sd):
+        directory.mkdir(parents=True)
+
+    rel = "Redump/Nintendo - GameCube - NKit RVZ/Metroid Prime (USA) (Rev 2).zip"
+    archive = dl_dir / rel
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("Metroid Prime (USA) (Rev 2).rvz", b"RVZ" * 1000)
+
+    db_path = tmp_path / "gc.db"
+    init_db(str(db_path))
+    with get_db_connection(str(db_path)) as conn:
+        conn.execute(
+            "INSERT INTO games (title, system, state, matched_torrent_id, matched_file_index, "
+            "matched_file_path, matched_file_name) VALUES "
+            "('Metroid Prime', 'gamecube', 'linked', 1, 0, ?, ?);",
+            (rel, rel),
+        )
+        game_id = conn.execute("SELECT id FROM games;").fetchone()["id"]
+        conn.execute(
+            "INSERT INTO game_files (game_id, disc_number, torrent_id, file_index, file_path, file_name, file_length) "
+            "VALUES (?, 1, 1, 0, ?, ?, 3000);",
+            (game_id, rel, rel),
+        )
+        conn.commit()
+
+    cfg = Config(
+        paths=PathsConfig(download_dir=dl_dir, library_dir=lib_dir, data_dir=tmp_path),
+        targets={"sd": TargetConfig(name="sd", profile="esde", mount_path=sd, uuid="uuid")},
+    )
+    return cfg, str(db_path)
+
+
+def test_export_gamecube_rvz_zip_copies_without_reconversion(tmp_path: Path, monkeypatch):
+    cfg, db_path = _gamecube_fixture(tmp_path)
+    monkeypatch.setattr(export_module.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    monkeypatch.setattr(
+        export_module, "convert_to_rvz", lambda *args, **kwargs: pytest.fail("RVZ reconverted")
+    )
+
+    result = export_module.export_to_target(
+        "sd", system="gamecube", config=cfg, db_path=db_path
+    )
+
+    assert result["errors"] == []
+    assert result["exported"] == 1
+    dest = tmp_path / "sd" / "ROMs" / "gc" / "Metroid Prime (USA) (Rev 2).rvz"
+    assert dest.is_file()
+    assert dest.read_bytes() == b"RVZ" * 1000
 
 
 def test_export_cleans_up_staging(tmp_path: Path, monkeypatch):

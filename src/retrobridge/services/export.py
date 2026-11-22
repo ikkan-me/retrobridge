@@ -19,6 +19,7 @@ from retrobridge.adapters.compress import (
     extract_disc_set,
     convert_to_chd,
     convert_to_rvz,
+    DISC_SET_MEMBERS,
 )
 
 class ExportError(Exception):
@@ -76,13 +77,26 @@ def _discard_staging(paths: list) -> None:
 def _unpack_if_archive(src: Path, staging_dir: Path, sys_prof, tmp_files: list) -> Path:
     """Extracts a zip archive into staging before conversion (chd/rvz).
 
-    The whole disc image is extracted (`.cue` + `.bin` tracks): chdman
-    cannot convert a `.cue` whose tracks are still inside the archive.
+    Optical disc sets (`.cue` + `.bin` tracks, `.gdi`...) need the whole set:
+    chdman cannot convert a `.cue` whose tracks are still inside the archive.
+    Single-file images (`.rvz`, `.gcm`, `.wbfs`...) must be selected by
+    extension instead: ``extract_disc_set`` ignores `.rvz` and would raise
+    "No disc image found".
     """
     if zipfile.is_zipfile(src):
         work_dir = Path(tempfile.mkdtemp(prefix="unpack-", dir=staging_dir))
         tmp_files.append(work_dir)
-        return extract_disc_set(src, work_dir)
+        with zipfile.ZipFile(src) as zf:
+            suffixes = {
+                Path(member).suffix.lower()
+                for member in zf.namelist()
+                if not member.endswith("/")
+            }
+        if suffixes & set(DISC_SET_MEMBERS):
+            return extract_disc_set(src, work_dir)
+        return extract_from_archive(
+            src, work_dir, sys_prof.extensions if sys_prof else None
+        )
     return src
 
 def export_to_target(
@@ -341,17 +355,25 @@ def export_to_target(
                                 emit({"event": "phase", "phase": "copy"})
                                 _copy_with_progress(src, dest, on_bytes)
                             else:
-                                emit({"event": "phase", "phase": "convert"})
-                                work_src = _unpack_if_archive(src, staging_dir, sys_prof, tmp_staging_files)
-                                tmp_out = staging_dir / (src.stem + f".{rule}")
-                                if rule == "chd":
-                                    is_dvd = normalize_system(game["system"]).lower() in ("ps2", "psp")
-                                    convert_to_chd(work_src, tmp_out, is_dvd=is_dvd)
+                                work_src = _unpack_if_archive(
+                                    src, staging_dir, sys_prof, tmp_staging_files
+                                )
+                                if work_src.suffix.lower() == f".{rule}":
+                                    # The archive already contains the target
+                                    # format (e.g. .rvz in the GameCube pack).
+                                    emit({"event": "phase", "phase": "copy"})
+                                    _copy_with_progress(work_src, dest, on_bytes)
                                 else:
-                                    convert_to_rvz(work_src, tmp_out)
-                                tmp_staging_files.append(tmp_out)
-                                emit({"event": "phase", "phase": "copy"})
-                                _copy_with_progress(tmp_out, dest, on_bytes)
+                                    emit({"event": "phase", "phase": "convert"})
+                                    tmp_out = staging_dir / (src.stem + f".{rule}")
+                                    if rule == "chd":
+                                        is_dvd = normalize_system(game["system"]).lower() in ("ps2", "psp")
+                                        convert_to_chd(work_src, tmp_out, is_dvd=is_dvd)
+                                    else:
+                                        convert_to_rvz(work_src, tmp_out)
+                                    tmp_staging_files.append(tmp_out)
+                                    emit({"event": "phase", "phase": "copy"})
+                                    _copy_with_progress(tmp_out, dest, on_bytes)
                         else:
                             emit({"event": "phase", "phase": "copy"})
                             _copy_with_progress(src, dest, on_bytes)
@@ -529,10 +551,16 @@ def prepare_export(
                             extract_from_archive(src, dest_dir, sys_prof.extensions if sys_prof else None)
                     elif rule == "chd" and src.suffix.lower() != ".chd":
                         work_src = _unpack_if_archive(src, dest_dir, sys_prof, tmp_files)
-                        convert_to_chd(work_src, dest, is_dvd=sys_k in ("ps2", "psp"))
+                        if work_src.suffix.lower() == ".chd":
+                            shutil.copy2(work_src, dest)
+                        else:
+                            convert_to_chd(work_src, dest, is_dvd=sys_k in ("ps2", "psp"))
                     elif rule == "rvz" and src.suffix.lower() != ".rvz":
                         work_src = _unpack_if_archive(src, dest_dir, sys_prof, tmp_files)
-                        convert_to_rvz(work_src, dest)
+                        if work_src.suffix.lower() == ".rvz":
+                            shutil.copy2(work_src, dest)
+                        else:
+                            convert_to_rvz(work_src, dest)
                     elif rule not in ("extract", "chd", "rvz"):
                         skipped += 1
                         continue
