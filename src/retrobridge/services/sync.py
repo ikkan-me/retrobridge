@@ -57,7 +57,7 @@ def run_sync(
             if orphan_count:
                 errors.append(
                     f"{orphan_count} game(s) no longer reference any pack file "
-                    "(run 'retrobridge tools audit')."
+                    "(run 'retrobridge tools clean')."
                 )
 
         # 2. Execute pending actions (local deletions)

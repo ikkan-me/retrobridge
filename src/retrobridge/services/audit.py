@@ -42,7 +42,8 @@ def audit_collection(
         """).fetchall()]
 
         duplicate_paths = [dict(r) for r in conn.execute("""
-            SELECT matched_file_path, COUNT(*) as c
+            SELECT matched_file_path, COUNT(*) as c,
+                   GROUP_CONCAT(title, ' | ') AS titles
             FROM games
             WHERE matched_file_path IS NOT NULL AND matched_file_path != ''
             GROUP BY matched_file_path HAVING c > 1;

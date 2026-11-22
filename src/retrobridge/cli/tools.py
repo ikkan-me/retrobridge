@@ -1,17 +1,20 @@
+import sys
 import typer
 from typing import Optional
 from rich.console import Console
 from rich.markup import escape
+from rich.table import Table
 from pathlib import Path
 import json
 import shutil
 
-from retrobridge.storage.db import init_db, get_db_connection
+from retrobridge.storage.db import init_db
 from retrobridge.storage.legacy import import_legacy_db
 from retrobridge.storage.migrations import migrate_db, backup_db
 from retrobridge.services.scan import scan_torrents
 from retrobridge.services.apply import apply_selection
-from retrobridge.services.audit import audit_collection
+from retrobridge.services.cleanup import build_cleanup_report, apply_cleanup
+from retrobridge.cli.formatting import format_size
 from retrobridge.profiles.loader import list_profiles, load_profile
 from retrobridge.adapters.transmission import TransmissionClient
 from retrobridge.services.export import prepare_export
@@ -99,35 +102,6 @@ def db_backup(
         return
 
     console.print(f"[bold green]Backup created:[/bold green] {escape(str(dest))}")
-
-@app.command("audit")
-def tools_audit(
-    as_json: bool = typer.Option(False, "--json", help="Raw JSON output"),
-    db_path: Optional[str] = typer.Option(None, "--db", help="Alternative path to the database"),
-):
-    """Check that no game is orphaned (file outside packs, missing from disk, duplicates)."""
-    res = audit_collection(db_path=db_path)
-
-    if as_json:
-        typer.echo(json.dumps(res, indent=2, ensure_ascii=False))
-    else:
-        if res["ok"]:
-            console.print("[bold green]Audit OK:[/bold green] no orphan games.")
-        else:
-            console.print("[bold red]Anomalies detected:[/bold red]")
-            console.print(f"  • Games without a pack file: {len(res['without_pack_file'])}")
-            console.print(f"  • Games without a matched file: {len(res['without_matched_name'])}")
-            console.print(f"  • Games missing from disk: {len(res['missing_on_disk'])}")
-            for key, label in [
-                ("without_pack_file", "outside pack"),
-                ("missing_on_disk", "missing from disk"),
-            ]:
-                for item in res[key][:10]:
-                    console.print(f"    [yellow]! {escape(str(item['system']))} | {escape(str(item['title']))} ({escape(str(label))})[/yellow]")
-
-    if not res["ok"]:
-        raise typer.Exit(code=1)
-
 
 @app.command("apply")
 def tools_apply(
@@ -331,83 +305,172 @@ def tools_verify(
             f"{entry.get('error_string') or 'Transmission error'} ({state})"
         )
 
+def _interactive_confirm(message: str) -> bool:
+    """Asks y/N only on a real terminal (never hangs in scripts/systemd)."""
+    if not sys.stdin.isatty():
+        return False
+    return typer.confirm(message, default=False)
+
+
+def _print_cleanup_report(report: dict, partial_only: bool) -> None:
+    refresh = report.get("refresh") or {}
+    if refresh.get("ran"):
+        console.print(
+            f"[dim]Transmission refreshed: {refresh.get('torrents', '?')} torrents, "
+            f"{refresh.get('changed', 0)} changed.[/dim]"
+        )
+    elif refresh.get("error"):
+        console.print(
+            "[bold yellow]⚠ Transmission unreachable:[/bold yellow] "
+            f"[dim]{escape(str(refresh['error']))} — state from the last scan.[/dim]"
+        )
+
+    totals = report["totals"]
+    table = Table(title="État des lieux", expand=True)
+    table.add_column("Catégorie", style="cyan", no_wrap=True)
+    table.add_column("Éléments", justify="right", no_wrap=True)
+    table.add_column("Taille réelle", justify="right", no_wrap=True)
+
+    table.add_row("Jeux orphelins (base)", str(totals["games_to_purge"]), "—")
+    table.add_row(
+        "Fichiers complets non voulus",
+        str(totals["complete_files"]),
+        format_size(totals["complete_bytes"]),
+    )
+    table.add_row(
+        "Fichiers .part non voulus",
+        str(totals["partial_files"]),
+        format_size(totals["partial_bytes"]),
+    )
+    table.add_row(
+        "Fichiers hors pack",
+        str(totals["orphan_files"]),
+        format_size(totals["orphan_bytes"]),
+    )
+    table.add_row(
+        "[bold]Total récupérable[/bold]",
+        "",
+        f"[bold]{format_size(totals['reclaimable_bytes'])}[/bold]",
+    )
+    console.print(table)
+
+    if report.get("missing_on_disk"):
+        console.print(
+            f"[bold yellow]⚠ {len(report['missing_on_disk'])} jeu(x) lié(s) absent(s) du disque[/bold yellow] "
+            "[dim]— relancer `retrobridge sync` (clean ne les supprime pas)[/dim]"
+        )
+        for game in report["missing_on_disk"][:5]:
+            console.print(
+                f"    [dim]· {escape(str(game['system']))} | {escape(str(game['title']))}[/dim]"
+            )
+
+    if report.get("duplicate_paths"):
+        console.print(
+            f"[bold yellow]⚠ {len(report['duplicate_paths'])} chemin(s) en doublon[/bold yellow] "
+            "[dim]— à examiner manuellement[/dim]"
+        )
+        for duplicate in report["duplicate_paths"][:5]:
+            console.print(
+                f"    [dim]· {escape(Path(duplicate['matched_file_path']).name)} "
+                f"({duplicate.get('c', '?')} jeux : {escape(str(duplicate.get('titles') or ''))})[/dim]"
+            )
+
+    if not partial_only and report["totals"]["complete_files"]:
+        console.print(
+            "[dim]Les fichiers complets supprimés ne seront plus partagés (seeding) et devront "
+            "être re-téléchargés si tu les veux plus tard. Utilise --partial-only pour les conserver.[/dim]"
+        )
+    if partial_only:
+        console.print("[dim]Mode partiels : les fichiers complets sont conservés (seeding).[/dim]")
+
+
 @app.command("clean")
 def tools_clean(
-    apply_changes: bool = typer.Option(False, "--apply", help="Actually delete orphan files"),
+    apply_changes: bool = typer.Option(
+        False, "--apply", "-y", help="Apply without asking for confirmation"
+    ),
+    partial_only: bool = typer.Option(
+        False, "--partial-only", help="Only remove .part files (keep complete files for seeding)"
+    ),
+    no_games: bool = typer.Option(
+        False, "--no-games", help="Do not purge orphan games from the database"
+    ),
+    no_disk_scan: bool = typer.Option(
+        False, "--no-disk-scan", help="Skip scanning files outside indexed packs"
+    ),
+    no_refresh: bool = typer.Option(
+        False, "--no-refresh", help="Do not refresh Transmission file stats first"
+    ),
+    as_json: bool = typer.Option(False, "--json", help="Raw JSON output"),
     db_path: Optional[str] = typer.Option(None, "--db", help="Alternative path to the database"),
 ):
-    """Clean orphan files from the Download-Dir (dry-run by default)."""
-    dry_run = not apply_changes
+    """Audit the collection and reclaim disk space: report first, then y/N."""
     cfg = load_config()
-    download_dir = cfg.paths.download_dir
-    init_db(db_path)
+    report = build_cleanup_report(
+        config=cfg,
+        db_path=db_path,
+        scan_disk=not no_disk_scan,
+        refresh=not no_refresh,
+    )
 
-    # Collect all known files: selected games, exports and
-    # the entire pack index (protects files still seeding).
-    referenced_files: set[str] = set()
-    with get_db_connection(db_path) as conn:
-        cur = conn.cursor()
-        cur.execute("SELECT matched_file_path FROM games")
-        for row in cur.fetchall():
-            path = row[0]
-            if path:
-                referenced_files.add(str(Path(path).name))
-        cur.execute("SELECT file_path FROM game_files")
-        for row in cur.fetchall():
-            path = row[0]
-            if path:
-                referenced_files.add(str(Path(path).name))
-        cur.execute("SELECT source_file FROM exports")
-        for row in cur.fetchall():
-            path = row[0]
-            if path:
-                referenced_files.add(str(Path(path).name))
-        cur.execute("SELECT source_file FROM export_files")
-        for row in cur.fetchall():
-            path = row[0]
-            if path:
-                referenced_files.add(str(Path(path).name))
-        cur.execute("SELECT file_name FROM torrent_cache")
-        for row in cur.fetchall():
-            path = row[0]
-            if path:
-                referenced_files.add(str(Path(path).name))
+    actionable = bool(
+        report["games_to_purge"]
+        or report["partial_unwanted"]
+        or report["orphan_files"]
+        or (report["complete_unwanted"] and not partial_only)
+    )
 
-    # Scan the Download-Dir for orphan files
-    orphans: list[Path] = []
-    if download_dir.exists():
-        for p in download_dir.rglob("*"):
-            if not p.is_file():
-                continue
-            name = p.name
-            if name in referenced_files:
-                continue
-            # An in-progress download has the .part suffix: keep it.
-            if name.endswith(".part") and name[:-5] in referenced_files:
-                continue
-            orphans.append(p)
+    if not as_json:
+        _print_cleanup_report(report, partial_only=partial_only)
 
-    if dry_run:
-        if orphans:
-            console.print(f"[yellow]Dry-run:[/yellow] {len(orphans)} orphan file(s) found.")
-            for o in orphans:
-                console.print(f"  [dim]-> {escape(str(o))}[/dim]")
-            console.print("[dim]Rerun with --apply to delete.[/dim]")
+    if not actionable:
+        if as_json:
+            typer.echo(json.dumps({**report, "applied": None}, indent=2, ensure_ascii=False))
         else:
-            console.print("[dim]No orphan files found.[/dim]")
+            console.print("[bold green]Rien à nettoyer.[/bold green]")
         return
 
-    if orphans:
-        deleted_count = 0
-        for orphan in orphans:
-            try:
-                orphan.unlink()
-                deleted_count += 1
-            except Exception as e:
-                console.print(f"[red]Error deleting {escape(str(orphan))}: {escape(str(e))}[/red]")
-        console.print(f"[green]Cleanup complete: {deleted_count} file(s) deleted.[/green]")
-    else:
-        console.print("[green]No orphan files found.[/green]")
+    should_apply = apply_changes
+    if not should_apply and not as_json:
+        reclaimable = report["totals"]["reclaimable_bytes"]
+        if partial_only:
+            reclaimable = report["totals"]["partial_bytes"] + report["totals"]["orphan_bytes"]
+        should_apply = _interactive_confirm(
+            f"Appliquer le nettoyage ({format_size(reclaimable)} récupérables) ?"
+        )
+
+    if not should_apply:
+        if as_json:
+            typer.echo(json.dumps({**report, "applied": None}, indent=2, ensure_ascii=False))
+        else:
+            console.print("[dim]Aucune modification. Relance avec --apply pour exécuter.[/dim]")
+        return
+
+    result = apply_cleanup(
+        report,
+        db_path=db_path,
+        include_complete=not partial_only,
+        purge_games=not no_games,
+    )
+
+    if as_json:
+        typer.echo(json.dumps({**report, "applied": result}, indent=2, ensure_ascii=False))
+        return
+
+    purged = (
+        f", {result['purged_games']} jeu(x) orphelin(s) purgé(s)"
+        if result["purged_games"]
+        else ""
+    )
+    console.print(
+        f"[bold green]Nettoyage terminé :[/bold green] {result['deleted_files']} fichier(s), "
+        f"{format_size(result['freed_bytes'])} récupérés{purged}."
+    )
+    for err in result["errors"]:
+        console.print(f"  [red]! {escape(err)}[/red]")
+    if result["errors"]:
+        raise typer.Exit(code=1)
+
 
 @app.command("relocate")
 def tools_relocate(

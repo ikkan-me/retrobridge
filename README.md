@@ -28,13 +28,13 @@ RetroBridge automates the gap between raw game downloads and ready-to-play handh
 2. **Organize** — RetroBridge indexes the packs in SQLite, scores candidates (60Hz/NTSC, revisions, languages), and creates **hard links** in the **Library-Dir**. Multi-disc games get `.m3u` playlists automatically.
 3. **Export** — only new or changed games are converted in local staging (`.chd`, `.rvz`, `.zip` extraction) and copied to the SD card targets (**ES-DE**, **Knulli**, **Batocera**).
 
-The SQLite catalog is the single source of truth. `status`, `tools audit`, `tools clean`, `tools verify`, and `tools bios` stay available at every stage.
+The SQLite catalog is the single source of truth. `status`, `tools clean`, `tools verify`, and `tools bios` stay available at every stage.
 
 ---
 
 ## 🎯 Architecture principles
 
-- **Single source of truth**: a SQLite database (`~/.local/share/retrobridge/retrobridge.db`) drives all states (games, selected game file, torrent cache, exports). A game always references a real file from an indexed pack: `tools audit` and `sync` reject orphan references.
+- **Single source of truth**: a SQLite database (`~/.local/share/retrobridge/retrobridge.db`) drives all states (games, selected game file, torrent cache, exports). A game always references a real file from an indexed pack: `tools clean` and `sync` reject orphan references.
 - **No background daemon**: no resident service. A TTL system on metadata triggers the required refreshes on demand, protected by a non-blocking file lock (`fcntl.flock`).
 - **Three-directory model**:
   1. **Download-Dir**: raw directory where Transmission downloads and seeds (never manually altered).
@@ -177,11 +177,10 @@ Replayable configuration wizard:
 **Packs and Transmission**
 - **`retrobridge tools scan`**: forces immediate caching of Transmission torrent files.
 - **`retrobridge tools apply [--dry-run]`**: aligns Transmission priorities with the actual selection: only files for added games remain requested, the rest of the packs is unselected (also run by `sync`).
-- **`retrobridge tools audit`**: checks that no game is orphaned (file missing from indexed packs, file gone from disk, duplicates). `sync` also reports any orphan automatically.
+- **`retrobridge tools clean [--apply] [--partial-only] [--no-games] [--no-disk-scan]`**: single audit + reclaim command. By default it prints the full state of the collection (orphan games, unwanted complete files, unwanted `.part` files, files outside packs, real bytes) then asks **y/N** before deleting. `--apply` skips the prompt; `--partial-only` keeps complete files (seeding) and only removes partials; `--no-games` leaves orphan database rows untouched. Real freed space is measured on allocated blocks, not apparent size.
 - **`retrobridge tools pause <id>` / `resume <id>`**: direct torrent control (pause, resume).
 - **`retrobridge tools verify [id]`**: verifies a torrent; without an ID, verifies all torrents reported as errored or corrupt.
 - **`retrobridge tools relocate <id> <new-path>`**: moves a torrent's data and realigns its location in Transmission.
-- **`retrobridge tools clean`**: lists orphan files in Download-Dir (dry-run by default); `--apply` deletes them.
 
 **Export**
 - **`retrobridge tools prepare-export <target> [--system X] [--tier N] [--dry-run]`**: converts files to the export format in the staging directory without writing to the card.

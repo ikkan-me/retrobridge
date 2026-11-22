@@ -482,26 +482,149 @@ def test_sync_reports_broken_library_dir_without_crashing(tmp_path: Path):
         assert row["state"] == "downloaded"
 
 
-def test_tools_clean_keeps_pack_and_partial_files(tmp_path: Path, monkeypatch):
+def _seed_cleanup_db(db_file: Path, dl_dir: Path) -> dict:
+    """Creates a DB + files covering every cleanup category."""
+    init_db(str(db_file))
+
+    wanted = dl_dir / "Wanted.zip"
+    wanted.write_text("wanted")
+    complete = dl_dir / "Old PAL.zip"
+    complete.write_bytes(b"x" * 100)
+    partial = dl_dir / "Partial.zip.part"
+    partial.write_bytes(b"y" * 50)
+    orphan = dl_dir / "Orphan.zip"
+    orphan.write_text("orphan")
+    linked = dl_dir / "Linked.zip"
+    linked.write_text("linked")
+    # Complete on disk while the stale bytes_completed column says 0.
+    complete_zero = dl_dir / "ZeroBytesComplete.zip"
+    complete_zero.write_bytes(b"z" * 50)
+
+    with get_db_connection(str(db_file)) as conn:
+        conn.executemany(
+            "INSERT INTO torrent_cache "
+            "(torrent_id, torrent_name, file_index, file_name, file_length, bytes_completed, is_wanted) "
+            "VALUES (1, 'Pack', ?, ?, ?, ?, ?);",
+            [
+                (0, "Wanted.zip", 6, 6, 1),
+                (1, "Old PAL.zip", 100, 100, 0),
+                (2, "Partial.zip", 200, 50, 0),
+                (3, "Linked.zip", 6, 6, 0),
+                (4, "ZeroBytesComplete.zip", 50, 0, 0),
+            ],
+        )
+        conn.execute(
+            "INSERT INTO games "
+            "(title, system, state, matched_torrent_id, matched_file_index, matched_file_path, matched_file_name) "
+            "VALUES ('Linked Game', 'SNES', 'linked', 1, 3, 'Linked.zip', 'Linked.zip');"
+        )
+        conn.commit()
+
+    return {
+        "wanted": wanted,
+        "complete": complete,
+        "partial": partial,
+        "orphan": orphan,
+        "linked": linked,
+        "complete_zero": complete_zero,
+    }
+
+
+def test_tools_clean_reports_then_reclaims(tmp_path: Path, monkeypatch):
     from retrobridge.config import Config, PathsConfig, save_config
 
     db_file = tmp_path / "clean.db"
     dl_dir = tmp_path / "downloads"
     dl_dir.mkdir(parents=True)
+    files = _seed_cleanup_db(db_file, dl_dir)
+
+    cfg = Config(paths=PathsConfig(download_dir=dl_dir, library_dir=tmp_path / "lib", data_dir=tmp_path))
+    cfg_file = tmp_path / "config.toml"
+    save_config(cfg, cfg_file)
+    monkeypatch.setenv("RETROBRIDGE_CONFIG", str(cfg_file))
+
+    # Default behaviour: state of play only, nothing deleted.
+    dry = runner.invoke(app, ["tools", "clean", "--no-refresh", "--db", str(db_file)])
+    assert dry.exit_code == 0
+    for path in files.values():
+        assert path.exists()
+
+    res = runner.invoke(app, ["tools", "clean", "--no-refresh", "--apply", "--db", str(db_file)])
+    assert res.exit_code == 0
+    assert files["wanted"].exists()      # still wanted in Transmission
+    assert files["linked"].exists()      # referenced by a game
+    assert not files["complete"].exists()
+    assert not files["complete_zero"].exists()
+    assert not files["partial"].exists()
+    assert not files["orphan"].exists()
+
+    report = runner.invoke(app, ["tools", "clean", "--no-refresh", "--json", "--db", str(db_file)])
+    assert report.exit_code == 0
+    data = json.loads(report.output)
+    assert data["totals"]["reclaimable_bytes"] == 0
+
+
+def test_tools_clean_partial_only_keeps_complete_files(tmp_path: Path, monkeypatch):
+    from retrobridge.config import Config, PathsConfig, save_config
+
+    db_file = tmp_path / "clean_partial.db"
+    dl_dir = tmp_path / "downloads"
+    dl_dir.mkdir(parents=True)
+    files = _seed_cleanup_db(db_file, dl_dir)
+
+    cfg = Config(paths=PathsConfig(download_dir=dl_dir, library_dir=tmp_path / "lib", data_dir=tmp_path))
+    cfg_file = tmp_path / "config.toml"
+    save_config(cfg, cfg_file)
+    monkeypatch.setenv("RETROBRIDGE_CONFIG", str(cfg_file))
+
+    res = runner.invoke(
+        app, ["tools", "clean", "--no-refresh", "--apply", "--partial-only", "--db", str(db_file)]
+    )
+    assert res.exit_code == 0
+    assert files["complete"].exists()    # kept for seeding
+    assert files["complete_zero"].exists()
+    assert not files["partial"].exists()
+    assert not files["orphan"].exists()
+
+
+def test_tools_clean_prompt_yes_and_no(tmp_path: Path, monkeypatch):
+    from retrobridge.config import Config, PathsConfig, save_config
+
+    db_file = tmp_path / "clean_prompt.db"
+    dl_dir = tmp_path / "downloads"
+    dl_dir.mkdir(parents=True)
+    files = _seed_cleanup_db(db_file, dl_dir)
+
+    cfg = Config(paths=PathsConfig(download_dir=dl_dir, library_dir=tmp_path / "lib", data_dir=tmp_path))
+    cfg_file = tmp_path / "config.toml"
+    save_config(cfg, cfg_file)
+    monkeypatch.setenv("RETROBRIDGE_CONFIG", str(cfg_file))
+
+    monkeypatch.setattr("retrobridge.cli.tools._interactive_confirm", lambda message: False)
+    no = runner.invoke(app, ["tools", "clean", "--no-refresh", "--db", str(db_file)])
+    assert no.exit_code == 0
+    assert files["complete"].exists()
+
+    monkeypatch.setattr("retrobridge.cli.tools._interactive_confirm", lambda message: True)
+    yes = runner.invoke(app, ["tools", "clean", "--no-refresh", "--db", str(db_file)])
+    assert yes.exit_code == 0
+    assert not files["complete"].exists()
+    assert not files["partial"].exists()
+
+
+def test_tools_clean_purges_orphan_games(tmp_path: Path, monkeypatch):
+    from retrobridge.config import Config, PathsConfig, save_config
+
+    db_file = tmp_path / "clean_games.db"
+    dl_dir = tmp_path / "downloads"
+    dl_dir.mkdir(parents=True)
     init_db(str(db_file))
 
-    pack_file = dl_dir / "Sonic.zip"
-    pack_file.write_text("pack")
-    partial_file = dl_dir / "Mario.zip.part"
-    partial_file.write_text("partial")
-    orphan_file = dl_dir / "Inconnu.zip"
-    orphan_file.write_text("orphan")
-
     with get_db_connection(str(db_file)) as conn:
-        # Mario is indexed in a pack but not selected yet
         conn.execute(
-            "INSERT INTO torrent_cache (torrent_id, torrent_name, file_index, file_name, file_length) "
-            "VALUES (1, 'Pack', 0, 'Sonic.zip', 4), (1, 'Pack', 1, 'Mario.zip', 100);"
+            "INSERT INTO games (title, system, state, matched_torrent_id, matched_file_index, "
+            "matched_file_path, matched_file_name) "
+            "VALUES ('Ghost', 'SNES', 'downloaded', 99, 0, 'Ghost.zip', 'Ghost.zip');"
         )
         conn.commit()
 
@@ -510,15 +633,49 @@ def test_tools_clean_keeps_pack_and_partial_files(tmp_path: Path, monkeypatch):
     save_config(cfg, cfg_file)
     monkeypatch.setenv("RETROBRIDGE_CONFIG", str(cfg_file))
 
-    dry = runner.invoke(app, ["tools", "clean", "--db", str(db_file)])
-    assert dry.exit_code == 0
-    assert orphan_file.exists()
-
-    res = runner.invoke(app, ["tools", "clean", "--apply", "--db", str(db_file)])
+    res = runner.invoke(app, ["tools", "clean", "--no-refresh", "--apply", "--db", str(db_file)])
     assert res.exit_code == 0
-    assert pack_file.exists()
-    assert partial_file.exists()
-    assert not orphan_file.exists()
+    with get_db_connection(str(db_file)) as conn:
+        assert conn.execute("SELECT COUNT(*) AS n FROM games;").fetchone()["n"] == 0
+
+
+def test_cleanup_report_refreshes_transmission_first(tmp_path, monkeypatch):
+    from retrobridge.config import Config, PathsConfig
+    from retrobridge.services import cleanup as cleanup_service
+
+    db_file = tmp_path / "clean_refresh.db"
+    dl_dir = tmp_path / "downloads"
+    dl_dir.mkdir(parents=True)
+    init_db(str(db_file))
+    cfg = Config(paths=PathsConfig(download_dir=dl_dir, library_dir=tmp_path / "lib", data_dir=tmp_path))
+
+    calls = []
+
+    def fake_scan(**kwargs):
+        calls.append(kwargs)
+        return {"torrents_count": 15, "changed_torrents": 0}
+
+    monkeypatch.setattr(cleanup_service, "scan_torrents", fake_scan)
+    report = cleanup_service.build_cleanup_report(
+        config=cfg, db_path=str(db_file), refresh=True
+    )
+    assert len(calls) == 1
+    assert report["refresh"] == {
+        "ran": True,
+        "torrents": 15,
+        "changed": 0,
+        "error": None,
+    }
+
+    def failing_scan(**kwargs):
+        raise RuntimeError("Transmission down")
+
+    monkeypatch.setattr(cleanup_service, "scan_torrents", failing_scan)
+    report = cleanup_service.build_cleanup_report(
+        config=cfg, db_path=str(db_file), refresh=True
+    )
+    assert report["refresh"]["ran"] is False
+    assert "Transmission down" in report["refresh"]["error"]
 
 
 def test_add_game_stores_canonical_system(tmp_path: Path):
