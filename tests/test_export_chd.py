@@ -196,6 +196,9 @@ def test_export_gamecube_rvz_zip_copies_without_reconversion(tmp_path: Path, mon
     monkeypatch.setattr(
         export_module, "convert_to_rvz", lambda *args, **kwargs: pytest.fail("RVZ reconverted")
     )
+    monkeypatch.setattr(
+        export_module, "_unpack_if_archive", lambda *args, **kwargs: pytest.fail("staged")
+    )
 
     result = export_module.export_to_target(
         "sd", system="gamecube", config=cfg, db_path=db_path

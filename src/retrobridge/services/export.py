@@ -60,6 +60,43 @@ def _copy_with_progress(
     return dst
 
 
+def _zip_member_for_suffix(archive: Path, suffix: str) -> Optional[str]:
+    """Returns the first file member ending with `suffix`, if any."""
+    if not zipfile.is_zipfile(archive):
+        return None
+    suffix = suffix.lower()
+    with zipfile.ZipFile(archive) as zf:
+        for member in zf.namelist():
+            if member.endswith("/"):
+                continue
+            if Path(member).suffix.lower() == suffix:
+                return member
+    return None
+
+
+def _copy_zip_member_with_progress(
+    archive: Path,
+    member: str,
+    dst: Path,
+    on_bytes: Optional[Callable[[int, int], None]] = None,
+) -> Path:
+    """Streams a zip member directly to its destination (no staging copy)."""
+    with zipfile.ZipFile(archive) as zf:
+        info = zf.getinfo(member)
+        total = info.file_size
+        done = 0
+        with zf.open(member) as fsrc, open(dst, "wb") as fdst:
+            while True:
+                block = fsrc.read(COPY_CHUNK_SIZE)
+                if not block:
+                    break
+                fdst.write(block)
+                done += len(block)
+                if on_bytes is not None:
+                    on_bytes(done, total)
+    return dst
+
+
 def _discard_staging(paths: list) -> None:
     """Removes intermediate staging files and unpack directories."""
     for path in paths:
@@ -355,25 +392,33 @@ def export_to_target(
                                 emit({"event": "phase", "phase": "copy"})
                                 _copy_with_progress(src, dest, on_bytes)
                             else:
-                                work_src = _unpack_if_archive(
-                                    src, staging_dir, sys_prof, tmp_staging_files
-                                )
-                                if work_src.suffix.lower() == f".{rule}":
-                                    # The archive already contains the target
-                                    # format (e.g. .rvz in the GameCube pack).
+                                direct_member = _zip_member_for_suffix(src, f".{rule}")
+                                if direct_member is not None:
+                                    # The archive already contains the final
+                                    # format: stream it straight to the card,
+                                    # without a /tmp round-trip.
                                     emit({"event": "phase", "phase": "copy"})
-                                    _copy_with_progress(work_src, dest, on_bytes)
+                                    _copy_zip_member_with_progress(
+                                        src, direct_member, dest, on_bytes
+                                    )
                                 else:
-                                    emit({"event": "phase", "phase": "convert"})
-                                    tmp_out = staging_dir / (src.stem + f".{rule}")
-                                    if rule == "chd":
-                                        is_dvd = normalize_system(game["system"]).lower() in ("ps2", "psp")
-                                        convert_to_chd(work_src, tmp_out, is_dvd=is_dvd)
+                                    work_src = _unpack_if_archive(
+                                        src, staging_dir, sys_prof, tmp_staging_files
+                                    )
+                                    if work_src.suffix.lower() == f".{rule}":
+                                        emit({"event": "phase", "phase": "copy"})
+                                        _copy_with_progress(work_src, dest, on_bytes)
                                     else:
-                                        convert_to_rvz(work_src, tmp_out)
-                                    tmp_staging_files.append(tmp_out)
-                                    emit({"event": "phase", "phase": "copy"})
-                                    _copy_with_progress(tmp_out, dest, on_bytes)
+                                        emit({"event": "phase", "phase": "convert"})
+                                        tmp_out = staging_dir / (src.stem + f".{rule}")
+                                        if rule == "chd":
+                                            is_dvd = normalize_system(game["system"]).lower() in ("ps2", "psp")
+                                            convert_to_chd(work_src, tmp_out, is_dvd=is_dvd)
+                                        else:
+                                            convert_to_rvz(work_src, tmp_out)
+                                        tmp_staging_files.append(tmp_out)
+                                        emit({"event": "phase", "phase": "copy"})
+                                        _copy_with_progress(tmp_out, dest, on_bytes)
                         else:
                             emit({"event": "phase", "phase": "copy"})
                             _copy_with_progress(src, dest, on_bytes)
