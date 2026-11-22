@@ -416,14 +416,15 @@ def _rich_bar(percent: float, width: int = 8) -> Text:
     return text
 
 
-def _download_cell(completed: int, total: int) -> Text:
+def _download_cell(completed: int, total: int, count_width: int = 1) -> Text:
     """Download completion as a bar plus the `completed / total` fraction."""
     if total <= 0:
         return Text("—", style="dim")
     percent = min(100.0, completed * 100.0 / total)
     cell = _rich_bar(percent, width=8)
     color = "green" if completed >= total else ("yellow" if completed else "dim")
-    cell.append(f" {completed}/{total}", style=color)
+    fraction = f"{completed}/{total}"
+    cell.append(f" {fraction:>{2 * count_width + 1}}", style=color)
     return cell
 
 
@@ -610,6 +611,9 @@ def cmd_status(
         table.add_column("Size", justify="right", no_wrap=True)
         table.add_column("Download", justify="right", no_wrap=True, min_width=16)
 
+        count_width = max(
+            (len(str(s["total"])) for s in status["systems"]), default=1
+        )
         for s in status["systems"]:
             complete = s.get("acquired", s["downloaded"] + s["linked"])
             linked = s.get("linked", 0)
@@ -617,13 +621,18 @@ def cmd_status(
 
             status_cell = Text()
             status_cell.append(
-                f"D {complete}", style="cyan" if complete else "dim"
+                f"D {complete:>{count_width}}",
+                style="cyan" if complete else "dim",
             )
             status_cell.append(" · ", style="dim")
-            status_cell.append(f"L {linked}", style="green" if linked else "dim")
+            status_cell.append(
+                f"L {linked:>{count_width}}",
+                style="green" if linked else "dim",
+            )
             status_cell.append(" · ", style="dim")
             status_cell.append(
-                f"E {exported}", style="magenta" if exported else "dim"
+                f"E {exported:>{count_width}}",
+                style="magenta" if exported else "dim",
             )
 
             table.add_row(
@@ -631,7 +640,7 @@ def cmd_status(
                 str(s["total"]),
                 status_cell,
                 format_size_compact(s.get("size_bytes")),
-                _download_cell(complete, s["total"]),
+                _download_cell(complete, s["total"], count_width),
             )
         console.print(table)
         console.print(
