@@ -10,6 +10,22 @@ RetroBridge automates the gap between raw game downloads and ready-to-play handh
 
 ---
 
+## 🧭 How it works
+
+<p align="center">
+  <img src="docs/retrobridge-flow.png" alt="RetroBridge pipeline: torrent packs → Download-Dir → SQLite catalog → Library-Dir hard links → staging → SD card targets" width="100%">
+</p>
+
+<p align="center"><sub><a href="docs/retrobridge-flow.svg">Open the vector version</a></sub></p>
+
+1. **Acquire** — add a paused torrent pack, then select only the games you want. Transmission fetches the chosen files into the raw **Download-Dir**, preserving seeding.
+2. **Organize** — RetroBridge indexes the packs in SQLite, scores candidates (60Hz/NTSC, revisions, languages), and creates **hard links** in the **Library-Dir**. Multi-disc games get `.m3u` playlists automatically.
+3. **Export** — only new or changed games are converted in local staging (`.chd`, `.rvz`, `.zip` extraction) and copied to the SD card targets (**ES-DE**, **Knulli**, **Batocera**).
+
+The SQLite catalog is the single source of truth. `status`, `tools audit`, `tools clean`, `tools verify`, and `tools bios` stay available at every stage.
+
+---
+
 ## 🎯 Architecture principles
 
 - **Single source of truth**: a SQLite database (`~/.local/share/retrobridge/retrobridge.db`) drives all states (games, selected game file, torrent cache, exports). A game always references a real file from an indexed pack: `tools audit` and `sync` reject orphan references.
@@ -78,6 +94,12 @@ retrobridge status --no-refresh   # do not trigger an automatic sync
 ```
 
 If the last sync is **older than 10 minutes**, `status` automatically runs a `sync` before rendering (independently of the systemd timer). The delay is configurable via `[ttl] status_ttl` (600 s by default).
+
+<p align="center">
+  <img src="docs/retrobridge-status.png" alt="Example retrobridge status output: collection state, per-system completeness and active downloads" width="100%">
+</p>
+
+<p align="center"><sub>Example output of <code>retrobridge status</code> — collection state, per-system completeness and active downloads.</sub></p>
 
 ### 2. `retrobridge find <search> -s <system>`
 Searches the torrent cache, checks cache freshness, and lets you add the game:
