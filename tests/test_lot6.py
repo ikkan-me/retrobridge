@@ -7,6 +7,7 @@ from retrobridge.domain.systems import normalize_system, file_matches_system
 from retrobridge.services.catalog import list_games
 from retrobridge.storage.db import init_db, get_db_connection
 from retrobridge.storage.migrations import migrate_db, backup_db
+from retrobridge.storage.legacy import import_legacy_db
 
 runner = CliRunner()
 
@@ -28,6 +29,111 @@ def test_file_matches_system_with_aliases():
     assert file_matches_system("Nintendo - GameCube/x.zip", "GC") is True
     assert file_matches_system("Sony - PlayStation 2/x.zip", "PS1") is False
     assert file_matches_system("Sega Genesis/x.zip", "GENESIS") is True
+
+
+def test_megadrive_and_genesis_are_the_same_system():
+    # Every spelling of the alias maps to the canonical code.
+    for alias in ("genesis", "GENESIS", "md", "mega-drive", "mega_drive", "sega genesis"):
+        assert normalize_system(alias) == "MEGADRIVE"
+
+    # Real Mega Drive layouts still match.
+    assert file_matches_system("Minerva_Myrient/RetroAchievements/RA - Sega Genesis/Comix Zone (USA).zip", "megadrive") is True
+    assert file_matches_system("Minerva_Myrient/No-Intro/Sega - Mega Drive - Genesis/Sonic (USA).zip", "megadrive") is True
+    assert file_matches_system("Minerva_Myrient/TOSEC/Sega/Genesis/Games/Sonic.zip", "megadrive") is True
+    assert file_matches_system("Sega Genesis - Sonic.zip", "megadrive") is True
+
+    # "Genesis" is also a common game title: no cross-system false positives.
+    assert file_matches_system("Minerva_Myrient/No-Intro/Nintendo - Game Boy Advance/Sonic The Hedgehog - Genesis (USA).zip", "megadrive") is False
+    assert file_matches_system("Minerva_Myrient/Redump/Sega - Saturn/Neon Genesis - Evangelion (Japan).zip", "megadrive") is False
+    assert file_matches_system("Minerva_Myrient/Redump/Sony - PlayStation 2/Jurassic Park - Operation Genesis (Europe).zip", "megadrive") is False
+    assert file_matches_system("Minerva_Myrient/Redump/Sony - PlayStation Portable/Sega Genesis Collection (USA).zip", "megadrive") is False
+    assert file_matches_system("Minerva_Myrient/TOSEC/Nintendo/DS/Games/Lunar - Genesis (2005).zip", "megadrive") is False
+
+
+def test_migrate_infers_and_merges_genesis_into_megadrive(tmp_path: Path):
+    db_file = tmp_path / "genesis.db"
+    init_db(str(db_file))
+    with get_db_connection(str(db_file)) as conn:
+        conn.execute(
+            "INSERT INTO games (title, system, state, matched_file_name) "
+            "VALUES ('Comix Zone', 'GENESIS', 'linked', "
+            "'Minerva_Myrient/RetroAchievements/RA - Sega Genesis/Comix Zone (USA).zip');"
+        )
+        # Same game already recorded under the canonical code: must be merged.
+        conn.execute(
+            "INSERT INTO games (title, system, state, matched_file_name) "
+            "VALUES ('Altered Beast', 'MEGADRIVE', 'linked', "
+            "'Minerva_Myrient/RetroAchievements/RA - Sega Genesis/Altered Beast (USA).zip');"
+        )
+        conn.commit()
+
+    result = migrate_db(db_path=str(db_file))
+    assert result["unresolved"] == []
+    assert not [r for r in result["renamed"] if r["to"] != "MEGADRIVE"]
+
+    with get_db_connection(str(db_file)) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM games WHERE system = 'GENESIS';").fetchone()[0] == 0
+    assert {g["system"] for g in list_games(db_path=str(db_file))} == {"MEGADRIVE"}
+
+
+def test_system_codes_are_alias_aware(tmp_path: Path):
+    from retrobridge.domain.systems import system_codes
+    from retrobridge.services.find import find_existing_game
+
+    assert set(system_codes("MEGADRIVE")) == {
+        "MEGADRIVE", "GENESIS", "SEGA GENESIS", "MD", "MEGA-DRIVE", "MEGA_DRIVE"
+    }
+
+    db_file = tmp_path / "aliases.db"
+    init_db(str(db_file))
+    with get_db_connection(str(db_file)) as conn:
+        # Legacy row stored with the old alias code, before any migration.
+        conn.execute(
+            "INSERT INTO games (title, system, state, matched_file_name) "
+            "VALUES ('Comix Zone', 'GENESIS', 'linked', 'Comix Zone (USA).zip');"
+        )
+        conn.commit()
+
+    # Reads are canonical: the row is found under either spelling.
+    assert [g["title"] for g in list_games(system="megadrive", db_path=str(db_file))] == ["Comix Zone"]
+    assert [g["system"] for g in list_games(system="megadrive", db_path=str(db_file))] == ["MEGADRIVE"]
+    assert find_existing_game("Comix Zone", "megadrive", db_path=str(db_file)) is not None
+    assert find_existing_game("Comix Zone", "genesis", db_path=str(db_file)) is not None
+
+
+def test_legacy_import_uses_canonical_system_codes(tmp_path: Path):
+    import sqlite3
+
+    legacy = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(legacy))
+    conn.executescript("""
+        CREATE TABLE games (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, system TEXT NOT NULL,
+            download_status TEXT, matched_torrent_id INTEGER, matched_file_index INTEGER,
+            matched_file_path TEXT, matched_file_name TEXT, match_score INTEGER DEFAULT 0,
+            match_lang_tag TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE TABLE torrent_cache (
+            torrent_id INTEGER NOT NULL, torrent_name TEXT NOT NULL, file_index INTEGER NOT NULL,
+            file_name TEXT NOT NULL, file_length INTEGER DEFAULT 0, is_wanted INTEGER DEFAULT 0,
+            bytes_completed INTEGER DEFAULT 0, PRIMARY KEY(torrent_id, file_index)
+        );
+    """)
+    conn.execute(
+        "INSERT INTO games (title, system, download_status, matched_file_name) "
+        "VALUES ('Sonic', 'GENESIS', 'LINKED', 'Sonic (USA).zip');"
+    )
+    conn.execute(
+        "INSERT INTO games (title, system, download_status, matched_file_name) "
+        "VALUES ('Mario', 'GC', 'LINKED', 'Mario (USA).zip');"
+    )
+    conn.commit()
+    conn.close()
+
+    target = tmp_path / "target.db"
+    import_legacy_db(legacy_db_path=str(legacy), target_db_path=str(target))
+    systems = {g["system"] for g in list_games(db_path=str(target))}
+    assert systems == {"MEGADRIVE", "GAMECUBE"}
 
 
 def test_system_detection_nintendo_packs():

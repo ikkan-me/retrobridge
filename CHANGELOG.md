@@ -25,3 +25,7 @@ and the project uses [Semantic Versioning](https://semver.org/).
   and generate the matching `.m3u` playlist.
 - `find` recognizes a game that is already present even when the query
   includes a disc suffix (`... Disk 2`).
+- `genesis` and `megadrive` are treated as one console everywhere
+  (`list`, `find`, `pin`, `unpin`, `remove`), and legacy pack paths are no
+  longer mistaken for Mega Drive (`.../Sony - PlayStation Portable/Sega
+  Genesis Collection.zip`, `Neon Genesis`, `Operation Genesis`).

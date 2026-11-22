@@ -2,6 +2,7 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, Any
 from retrobridge.storage.db import get_db_connection, init_db
+from retrobridge.domain.systems import normalize_system
 
 def import_legacy_db(legacy_db_path: str, target_db_path: str = None) -> Dict[str, Any]:
     legacy_p = Path(legacy_db_path)
@@ -48,7 +49,7 @@ def import_legacy_db(legacy_db_path: str, target_db_path: str = None) -> Dict[st
                         matched_file_name, match_score, match_lang_tag, created_at
                     ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    g["title"], g["system"], state,
+                    g["title"], normalize_system(g["system"]), state,
                     g["matched_torrent_id"], g["matched_file_index"], g["matched_file_path"],
                     g["matched_file_name"], g["match_score"] or 0, g["match_lang_tag"],
                     g["created_at"]

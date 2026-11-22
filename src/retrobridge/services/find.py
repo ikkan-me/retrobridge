@@ -13,7 +13,7 @@ from retrobridge.domain.multidisc import (
 )
 from retrobridge.domain.regions import classify_region
 from retrobridge.domain.scoring import normalize_text
-from retrobridge.domain.systems import normalize_system
+from retrobridge.domain.systems import system_codes
 from retrobridge.storage.db import get_db_connection, init_db, is_ttl_expired
 from retrobridge.services.scan import scan_torrents
 from retrobridge.services.search import search_candidates
@@ -29,14 +29,14 @@ def find_existing_game(
     A disc suffix in the query (`... Disk 2`) is ignored so that a
     multi-disc game is still recognized as already present.
     """
-    canonical = normalize_system(system)
+    codes = system_codes(system)
     wanted_key = normalize_text(get_base_title(title))
     with get_db_connection(db_path) as conn:
         rows = conn.execute(
             "SELECT id, title, system, state, matched_file_name, matched_file_path, "
             "matched_torrent_id, matched_file_index "
-            "FROM games WHERE UPPER(system) = ?;",
-            (canonical,),
+            f"FROM games WHERE UPPER(system) IN ({','.join('?' * len(codes))});",
+            codes,
         ).fetchall()
     for row in rows:
         if normalize_text(row["title"]) == wanted_key:

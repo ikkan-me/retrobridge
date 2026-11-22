@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from retrobridge.storage.db import get_db_connection
-from retrobridge.domain.systems import normalize_system
+from retrobridge.domain.systems import normalize_system, system_codes
 from retrobridge.domain.text import strip_emoji
 from retrobridge.services.downloads import classify_download
 
@@ -28,8 +28,9 @@ def list_games(
     """
     params = []
     if system:
-        query += " AND UPPER(g.system) = ?"
-        params.append(normalize_system(system))
+        codes = system_codes(system)
+        query += f" AND UPPER(g.system) IN ({','.join('?' * len(codes))})"
+        params.extend(codes)
     if state:
         query += " AND g.state = ?"
         params.append(state.lower())
@@ -41,6 +42,7 @@ def list_games(
     games: List[Dict[str, Any]] = []
     for row in rows:
         item = dict(row)
+        item["system"] = normalize_system(item.get("system") or "")
         file_rel = item.get("matched_file_path") or item.get("matched_file_name") or ""
         item["file_name"] = Path(file_rel).name if file_rel else None
         item["download_status"] = item["state"]

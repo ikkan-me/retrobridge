@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any, List
 from retrobridge.storage.db import get_db_connection
-from retrobridge.domain.systems import normalize_system
+from retrobridge.domain.systems import system_codes
 
 def request_removal(title: str, system: Optional[str] = None, db_path: Optional[str] = None) -> List[Dict[str, Any]]:
     actions_created = []
@@ -9,8 +9,9 @@ def request_removal(title: str, system: Optional[str] = None, db_path: Optional[
         query = "SELECT id, title, system, matched_file_path, matched_file_name FROM games WHERE title = ?"
         params = [title]
         if system:
-            query += " AND UPPER(system) = ?"
-            params.append(normalize_system(system))
+            codes = system_codes(system)
+            query += f" AND UPPER(system) IN ({','.join('?' * len(codes))})"
+            params.extend(codes)
         cur.execute(query, params)
         games = cur.fetchall()
 
