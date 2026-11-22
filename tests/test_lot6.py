@@ -361,6 +361,34 @@ def test_verify_helpers(tmp_path: Path):
     assert needs_verification(tmp_path, "a.zip", 200, 0) is False
 
 
+def test_verify_helpers_missing_but_complete(tmp_path: Path):
+    from retrobridge.services.verify import is_missing_but_complete
+
+    # Transmission says complete, but neither the file nor a .part exists.
+    assert is_missing_but_complete(tmp_path, "missing.zip", 100, 100) is True
+    # Not complete per Transmission → normal download.
+    assert is_missing_but_complete(tmp_path, "missing.zip", 100, 50) is False
+    # File present → not missing.
+    (tmp_path / "present.zip").write_bytes(b"x" * 100)
+    assert is_missing_but_complete(tmp_path, "present.zip", 100, 100) is False
+    # A .part still exists → the download is in progress.
+    (tmp_path / "part.zip.part").write_bytes(b"x" * 10)
+    assert is_missing_but_complete(tmp_path, "part.zip", 100, 100) is False
+
+
+def test_portable_scoring_is_region_agnostic():
+    from retrobridge.domain.scoring import score_rom
+
+    jp = "Pokemon Pinball (1999-04-14)(Nintendo)(JP)[GBC][SGB][rumble].zip"
+    eu = "Pokemon Pinball (2000-10-06)(Nintendo)(EU)(M6)[GBC][SGB][rumble].zip"
+    us = "Pokemon Pinball (1999-06-28)(Nintendo)(AU-US)[GBC][SGB][rumble].zip"
+
+    assert score_rom(jp, system="GBC") == score_rom(eu, system="GBC") == 1000
+    assert score_rom(us, system="GBC") == 1000
+    # Without the system, the old NTSC/PAL bias still applies.
+    assert score_rom(jp) > score_rom(eu)
+
+
 def test_apply_selection_verifies_existing_complete_file(tmp_path: Path):
     from retrobridge.services.apply import apply_selection
 
@@ -509,6 +537,69 @@ def test_sync_verifies_complete_file_with_zero_progress(tmp_path: Path, monkeypa
 
     assert instances and instances[0].verify_calls == [7]
     assert any("verification requested" in action for action in res["actions"])
+
+
+def test_sync_verifies_missing_file_marked_complete(tmp_path: Path, monkeypatch):
+    from retrobridge.config import Config, PathsConfig
+    from retrobridge.services.sync import run_sync
+
+    db_file = tmp_path / "sync_missing.db"
+    dl_dir = tmp_path / "downloads"
+    lib_dir = tmp_path / "library"
+    dl_dir.mkdir(parents=True)
+    init_db(str(db_file))
+
+    with get_db_connection(str(db_file)) as conn:
+        conn.execute(
+            "INSERT INTO torrent_cache "
+            "(torrent_id, torrent_name, file_index, file_name, file_length, is_wanted, bytes_completed) "
+            "VALUES (7, 'Pack', 0, 'Game.zip', 100, 1, 100);"
+        )
+        conn.execute(
+            "INSERT INTO games "
+            "(title, system, state, matched_torrent_id, matched_file_index, "
+            "matched_file_path, matched_file_name) "
+            "VALUES ('Game', 'SNES', 'downloading', 7, 0, 'Game.zip', 'Game.zip');"
+        )
+        conn.commit()
+
+    instances = []
+
+    class _FakeSyncClient:
+        def __init__(self, *args, **kwargs):
+            self.verify_calls = []
+            self.start_calls = []
+            instances.append(self)
+
+        def test_connection(self):
+            return True
+
+        def request(self, method, arguments=None):
+            return {"arguments": {"torrents": [{
+                "id": 7,
+                "name": "Pack",
+                "status": 0,
+                "fileStats": [{"wanted": True, "bytesCompleted": 100}],
+            }]}}
+
+        def set_file_priorities(self, *args, **kwargs):
+            pass
+
+        def start_torrent(self, torrent_id):
+            self.start_calls.append(torrent_id)
+
+        def verify_torrent(self, torrent_id):
+            self.verify_calls.append(torrent_id)
+
+    monkeypatch.setattr("retrobridge.services.sync.TransmissionClient", _FakeSyncClient)
+    cfg = Config(
+        paths=PathsConfig(download_dir=dl_dir, library_dir=lib_dir, data_dir=tmp_path)
+    )
+
+    res = run_sync(config=cfg, db_path=str(db_file), skip_scan=True, apply=False)
+
+    assert instances and instances[0].verify_calls == [7]
+    assert any("missing file marked complete" in action for action in res["actions"])
 
 
 def test_status_auto_sync_when_stale(tmp_path: Path, monkeypatch):
@@ -883,6 +974,117 @@ def test_cleanup_report_refreshes_transmission_first(tmp_path, monkeypatch):
     )
     assert report["refresh"]["ran"] is False
     assert "Transmission down" in report["refresh"]["error"]
+
+
+def test_cleanup_detects_stale_resume_and_orphan_library(tmp_path: Path):
+    import os
+    from retrobridge.config import Config, PathsConfig
+    from retrobridge.services.cleanup import build_cleanup_report, apply_cleanup
+
+    db_file = tmp_path / "cleanup_extra.db"
+    dl_dir = tmp_path / "downloads"
+    library_dir = tmp_path / "library"
+    snes = library_dir / "snes"
+    dl_dir.mkdir(parents=True)
+    snes.mkdir(parents=True)
+    init_db(str(db_file))
+
+    (dl_dir / "Old.zip").write_bytes(b"x" * 10)
+    os.link(dl_dir / "Old.zip", snes / "Old.zip")
+    (snes / "Only.zip").write_bytes(b"y" * 10)
+
+    with get_db_connection(str(db_file)) as conn:
+        conn.executemany(
+            "INSERT INTO torrent_cache "
+            "(torrent_id, torrent_name, file_index, file_name, file_length, is_wanted, bytes_completed) "
+            "VALUES (?, 'Pack', ?, ?, ?, ?, ?);",
+            [
+                (7, 0, "Ghost.zip", 100, 1, 100),
+                (8, 0, "Old.zip", 10, 1, 10),
+            ],
+        )
+        conn.execute(
+            "INSERT INTO games "
+            "(title, system, state, matched_torrent_id, matched_file_index, "
+            "matched_file_path, matched_file_name) "
+            "VALUES ('Ghost', 'SNES', 'downloading', 7, 0, 'Ghost.zip', 'Ghost.zip');"
+        )
+        conn.commit()
+
+    cfg = Config(
+        paths=PathsConfig(download_dir=dl_dir, library_dir=library_dir, data_dir=tmp_path)
+    )
+    report = build_cleanup_report(config=cfg, db_path=str(db_file), refresh=False)
+
+    assert [game["title"] for game in report["stale_resume"]] == ["Ghost"]
+    assert {item["name"] for item in report["orphan_library"]} == {"Old.zip", "Only.zip"}
+    assert {item["name"] for item in report["library_removable"]} == {"Old.zip"}
+    assert {item["name"] for item in report["library_only"]} == {"Only.zip"}
+    assert report["totals"]["stale_resume_files"] == 1
+
+    res = apply_cleanup(report, db_path=str(db_file))
+    assert not (snes / "Old.zip").exists()
+    assert (dl_dir / "Old.zip").exists()
+    assert (snes / "Only.zip").exists()
+    assert res["deleted_files"] == 1
+
+
+def test_add_game_removes_old_library_link(tmp_path: Path):
+    import os
+    from retrobridge.config import Config, PathsConfig
+    from retrobridge.services.add import add_game
+
+    db_file = tmp_path / "add_relink.db"
+    dl_dir = tmp_path / "downloads"
+    library_dir = tmp_path / "library"
+    snes = library_dir / "snes"
+    dl_dir.mkdir(parents=True)
+    snes.mkdir(parents=True)
+    (dl_dir / "Old.zip").write_bytes(b"x" * 10)
+    (dl_dir / "New.zip").write_bytes(b"y" * 20)
+    os.link(dl_dir / "Old.zip", snes / "Old.zip")
+    init_db(str(db_file))
+
+    with get_db_connection(str(db_file)) as conn:
+        conn.executemany(
+            "INSERT INTO torrent_cache "
+            "(torrent_id, torrent_name, file_index, file_name, file_length, is_wanted, bytes_completed) "
+            "VALUES (1, 'Pack', ?, ?, ?, 1, ?);",
+            [
+                (0, "Old.zip", 10, 10),
+                (1, "New.zip", 20, 0),
+            ],
+        )
+        conn.execute(
+            "INSERT INTO games "
+            "(title, system, state, matched_torrent_id, matched_file_index, "
+            "matched_file_path, matched_file_name) "
+            "VALUES ('Game', 'SNES', 'linked', 1, 0, 'Old.zip', 'Old.zip');"
+        )
+        conn.commit()
+
+    cfg = Config(
+        paths=PathsConfig(download_dir=dl_dir, library_dir=library_dir, data_dir=tmp_path)
+    )
+    res = add_game(
+        title="Game",
+        system="SNES",
+        selected_candidates=[{
+            "torrent_id": 1,
+            "file_index": 1,
+            "file_name": "New.zip",
+            "file_length": 20,
+            "score": 1000,
+            "lang_label": "en",
+        }],
+        config=cfg,
+        db_path=str(db_file),
+        apply_rpc=False,
+    )
+
+    assert not (snes / "Old.zip").exists()
+    assert (dl_dir / "Old.zip").exists()
+    assert res["removed_links"]
 
 
 def test_add_game_stores_canonical_system(tmp_path: Path):

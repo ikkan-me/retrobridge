@@ -9,7 +9,10 @@ from retrobridge.storage.lock import file_lock
 from retrobridge.profiles.loader import load_profile
 from retrobridge.services.scan import scan_torrents
 from retrobridge.services.apply import apply_selection
-from retrobridge.services.verify import torrents_needing_verify
+from retrobridge.services.verify import (
+    torrents_needing_verify,
+    torrents_with_missing_complete,
+)
 from retrobridge.adapters.transmission import TransmissionClient
 from retrobridge.domain.multidisc import extract_disc_number, get_disc_family, generate_m3u_content
 from retrobridge.domain.systems import normalize_system
@@ -247,7 +250,10 @@ def run_sync(
                             flagged = torrents_needing_verify(
                                 cfg.paths.download_dir, verify_rows
                             )
-                            if flagged and t_status != 2:  # 2 = currently checking
+                            missing = torrents_with_missing_complete(
+                                cfg.paths.download_dir, verify_rows
+                            )
+                            if (flagged or missing) and t_status != 2:  # 2 = checking
                                 recently_requested = not is_ttl_expired(
                                     conn, f"verify:{tid}", 6 * 3600
                                 )
@@ -255,9 +261,14 @@ def run_sync(
                                     if not dry_run:
                                         t_client.verify_torrent(tid)
                                         set_meta(conn, f"verify:{tid}", "requested")
+                                    reasons = []
+                                    if flagged:
+                                        reasons.append("existing files")
+                                    if missing:
+                                        reasons.append("missing file marked complete")
                                     actions.append(
                                         f"Transmission: verification requested for torrent #{tid} "
-                                        f"({t_item.get('name', tid)}) — existing files"
+                                        f"({t_item.get('name', tid)}) — {', '.join(reasons)}"
                                     )
 
                             # If the torrent is paused (0) and has requested files

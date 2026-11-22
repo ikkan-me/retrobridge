@@ -1026,6 +1026,12 @@ def cmd_find(
             f"  • [green]Existing file(s) verified in Transmission[/green] "
             f"[dim](torrents {tids})[/dim]"
         )
+    if result.get("removed_links"):
+        console.print(
+            f"  • [dim]Old Library link(s) removed: {len(result['removed_links'])}[/dim]"
+        )
+    for err in result.get("link_errors") or []:
+        console.print(f"  [yellow]! {escape(str(err))}[/yellow]")
 
 
 @app.command("search", hidden=True)
@@ -1132,6 +1138,12 @@ def cmd_add(
             f"  • [green]Existing file(s) verified in Transmission[/green] "
             f"[dim](torrents {tids})[/dim]"
         )
+    if res.get("removed_links"):
+        console.print(
+            f"  • [dim]Old Library link(s) removed: {len(res['removed_links'])}[/dim]"
+        )
+    for err in res.get("link_errors") or []:
+        console.print(f"  [yellow]! {escape(str(err))}[/yellow]")
 
 class _ExportProgress:
     """Renders the `export_to_target(progress=...)` events with Rich."""

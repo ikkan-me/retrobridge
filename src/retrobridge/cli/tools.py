@@ -350,6 +350,21 @@ def _print_cleanup_report(report: dict, partial_only: bool) -> None:
         format_size(totals["orphan_bytes"]),
     )
     table.add_row(
+        "Résumés périmés (fichier absent)",
+        str(totals.get("stale_resume_files", 0)),
+        "—",
+    )
+    table.add_row(
+        "Liens Library orphelins (supprimables)",
+        str(totals.get("orphan_library_files", 0)),
+        format_size(totals.get("orphan_library_bytes", 0)),
+    )
+    table.add_row(
+        "Fichiers Library sans Download (conservés)",
+        str(totals.get("library_only_files", 0)),
+        format_size(totals.get("library_only_bytes", 0)),
+    )
+    table.add_row(
         "[bold]Total récupérable[/bold]",
         "",
         f"[bold]{format_size(totals['reclaimable_bytes'])}[/bold]",
@@ -365,6 +380,33 @@ def _print_cleanup_report(report: dict, partial_only: bool) -> None:
             console.print(
                 f"    [dim]· {escape(str(game['system']))} | {escape(str(game['title']))}[/dim]"
             )
+
+    if report.get("stale_resume"):
+        console.print(
+            f"[bold yellow]⚠ {len(report['stale_resume'])} jeu(x) annoncé(s) complet(s) par "
+            "Transmission mais absent(s) du disque[/bold yellow] "
+            "[dim]— `retrobridge sync` forcera une vérification[/dim]"
+        )
+        for game in report["stale_resume"][:5]:
+            console.print(
+                f"    [dim]· {escape(str(game['system']))} | {escape(str(game['title']))}[/dim]"
+            )
+
+    if report.get("library_removable"):
+        console.print(
+            f"[bold yellow]⚠ {len(report['library_removable'])} lien(s) Library sans jeu[/bold yellow] "
+            "[dim]— supprimables (la copie Download existe)[/dim]"
+        )
+        for item in report["library_removable"][:5]:
+            console.print(f"    [dim]· {escape(item['name'])}[/dim]")
+
+    if report.get("library_only"):
+        console.print(
+            f"[bold yellow]⚠ {len(report['library_only'])} fichier(s) présents uniquement dans "
+            "la Library[/bold yellow] [dim]— conservés (aucune copie Download)[/dim]"
+        )
+        for item in report["library_only"][:5]:
+            console.print(f"    [dim]· {escape(item['name'])}[/dim]")
 
     if report.get("duplicate_paths"):
         console.print(
@@ -419,6 +461,7 @@ def tools_clean(
         report["games_to_purge"]
         or report["partial_unwanted"]
         or report["orphan_files"]
+        or report["library_removable"]
         or (report["complete_unwanted"] and not partial_only)
     )
 
@@ -428,6 +471,19 @@ def tools_clean(
     if not actionable:
         if as_json:
             typer.echo(json.dumps({**report, "applied": None}, indent=2, ensure_ascii=False))
+        elif report.get("stale_resume") or report.get("library_only"):
+            console.print(
+                "[bold yellow]Aucun fichier supprimable automatiquement.[/bold yellow]"
+            )
+            if report.get("stale_resume"):
+                console.print(
+                    "[dim]Lance `retrobridge sync` pour vérifier les résumés périmés.[/dim]"
+                )
+            if report.get("library_only"):
+                console.print(
+                    f"[dim]{len(report['library_only'])} fichier(s) Library sans copie "
+                    "Download : à examiner manuellement.[/dim]"
+                )
         else:
             console.print("[bold green]Rien à nettoyer.[/bold green]")
         return
@@ -437,8 +493,15 @@ def tools_clean(
         reclaimable = report["totals"]["reclaimable_bytes"]
         if partial_only:
             reclaimable = report["totals"]["partial_bytes"] + report["totals"]["orphan_bytes"]
+        elements = (
+            len(report["games_to_purge"])
+            + len(report["partial_unwanted"])
+            + len(report["orphan_files"])
+            + len(report["library_removable"])
+            + (0 if partial_only else len(report["complete_unwanted"]))
+        )
         should_apply = _interactive_confirm(
-            f"Appliquer le nettoyage ({format_size(reclaimable)} récupérables) ?"
+            f"Appliquer le nettoyage ({elements} élément(s), {format_size(reclaimable)} récupérables) ?"
         )
 
     if not should_apply:

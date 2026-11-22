@@ -78,3 +78,46 @@ def torrents_needing_verify(
         ):
             flagged.setdefault(int(torrent_id), []).append(int(file_index))
     return flagged
+
+
+def is_missing_but_complete(
+    download_dir: Path,
+    file_name: str,
+    file_length: int,
+    bytes_completed: int,
+) -> bool:
+    """True when Transmission claims a file is complete but it is absent.
+
+    Seen after an external deletion or a lost resume: the game stays
+    ``downloading`` forever because Transmission never re-checks the file.
+    A ``torrent-verify`` is required to reset its piece state.
+    """
+    if not file_name or int(file_length or 0) <= 0:
+        return False
+    if int(bytes_completed or 0) < int(file_length):
+        return False
+    final = download_dir / file_name
+    part = download_dir / f"{file_name}.part"
+    return not final.is_file() and not part.is_file()
+
+
+def torrents_with_missing_complete(
+    download_dir: Path,
+    rows: Iterable[Dict[str, Any]],
+) -> Dict[int, List[int]]:
+    """Groups the file indices that are missing although marked complete."""
+    flagged: Dict[int, List[int]] = {}
+    for row in rows:
+        torrent_id = row.get("torrent_id")
+        file_index = row.get("file_index")
+        if torrent_id is None or file_index is None:
+            continue
+        rel = row.get("file_name") or row.get("file_path") or ""
+        if is_missing_but_complete(
+            download_dir,
+            str(rel),
+            int(row.get("file_length") or 0),
+            int(row.get("bytes_completed") or 0),
+        ):
+            flagged.setdefault(int(torrent_id), []).append(int(file_index))
+    return flagged

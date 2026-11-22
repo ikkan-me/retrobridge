@@ -8,6 +8,7 @@ from retrobridge.services.search import search_candidates
 from retrobridge.services.verify import torrents_needing_verify
 from retrobridge.adapters.transmission import TransmissionClient
 from retrobridge.domain.systems import normalize_system
+from retrobridge.profiles.loader import load_profile
 
 
 class AddGameError(Exception):
@@ -44,21 +45,25 @@ def add_game(
     with get_db_connection(db_path) as conn:
         backfill_game_files(conn)
         previous = conn.execute(
-            "SELECT id, matched_torrent_id, matched_file_index FROM games "
-            "WHERE title = ? AND system = ?;",
+            "SELECT id, matched_torrent_id, matched_file_index, matched_file_path, matched_file_name "
+            "FROM games WHERE title = ? AND system = ?;",
             (title, canonical_system),
         ).fetchone()
         previous_files = []
         if previous:
             previous_files = [
-                (row["torrent_id"], row["file_index"])
+                (row["torrent_id"], row["file_index"], row["file_path"] or row["file_name"] or "")
                 for row in conn.execute(
-                    "SELECT torrent_id, file_index FROM game_files WHERE game_id = ?;",
+                    "SELECT torrent_id, file_index, file_path, file_name FROM game_files WHERE game_id = ?;",
                     (previous["id"],),
                 ).fetchall()
             ]
             if not previous_files and previous["matched_torrent_id"] is not None:
-                previous_files = [(previous["matched_torrent_id"], previous["matched_file_index"])]
+                previous_files = [(
+                    previous["matched_torrent_id"],
+                    previous["matched_file_index"],
+                    previous["matched_file_path"] or previous["matched_file_name"] or "",
+                )]
 
         conn.execute("""
             INSERT INTO games (
@@ -106,7 +111,11 @@ def add_game(
     rpc_error = None
     verify_errors: List[str] = []
     verifications: List[int] = []
+    removed_links: List[str] = []
+    link_errors: List[str] = []
+    client = None
     new_files = {(item.get("torrent_id"), item.get("file_index")) for item in ordered}
+    new_names = {Path(item["file_name"]).name for item in ordered}
     items_by_key = {
         (item.get("torrent_id"), item.get("file_index")): item for item in ordered
     }
@@ -165,20 +174,51 @@ def add_game(
                             set_meta(conn, f"verify:{tid}", "requested")
                 except Exception as exc:
                     verify_errors.append(f"Torrent #{tid}: verification check failed: {exc}")
-
-            # Unselect old files that are no longer used.
-            for old_tid, old_idx in previous_files:
-                if old_tid is None or old_idx is None or (old_tid, old_idx) in new_files:
-                    continue
-                with get_db_connection(db_path) as conn:
-                    used = conn.execute(
-                        "SELECT COUNT(*) AS n FROM game_files WHERE torrent_id = ? AND file_index = ?;",
-                        (old_tid, old_idx),
-                    ).fetchone()["n"]
-                if used == 0:
-                    client.set_file_priorities(old_tid, unwanted_indices=[old_idx])
         except Exception as exc:
             rpc_error = str(exc)
+
+    # A re-pointed game must not leave its previous Library link behind.
+    # Only the Library link is removed; the Download file is never touched.
+    profile = load_profile("esde")
+    sys_prof = profile.get_system(canonical_system)
+    lib_sub = sys_prof.dir if sys_prof else canonical_system.lower()
+    for old_tid, old_idx, old_rel in previous_files:
+        old_name = Path(old_rel).name if old_rel else ""
+        if old_name and old_name not in new_names:
+            with get_db_connection(db_path) as conn:
+                used = conn.execute(
+                    "SELECT COUNT(*) AS n FROM game_files WHERE game_id != ? "
+                    "AND (file_name = ? OR file_name = ? OR file_name LIKE ?);",
+                    (game_id, old_rel, old_name, f"%/{old_name}"),
+                ).fetchone()["n"]
+                used += conn.execute(
+                    "SELECT COUNT(*) AS n FROM games WHERE id != ? "
+                    "AND (matched_file_name = ? OR matched_file_name = ? OR matched_file_name LIKE ?);",
+                    (game_id, old_rel, old_name, f"%/{old_name}"),
+                ).fetchone()["n"]
+            if used == 0:
+                old_link = cfg.paths.library_dir / lib_sub / old_name
+                try:
+                    if old_link.is_file() or old_link.is_symlink():
+                        old_link.unlink()
+                        removed_links.append(str(old_link))
+                except OSError as exc:
+                    link_errors.append(f"{old_link}: {exc}")
+
+        if old_tid is None or old_idx is None or (old_tid, old_idx) in new_files:
+            continue
+        with get_db_connection(db_path) as conn:
+            used = conn.execute(
+                "SELECT COUNT(*) AS n FROM game_files WHERE torrent_id = ? AND file_index = ?;",
+                (old_tid, old_idx),
+            ).fetchone()["n"]
+        if used == 0 and client is not None:
+            try:
+                client.set_file_priorities(old_tid, unwanted_indices=[old_idx])
+            except Exception as exc:
+                verify_errors.append(
+                    f"Torrent #{old_tid}: unable to unselect old file: {exc}"
+                )
 
     return {
         "title": title,
@@ -192,4 +232,6 @@ def add_game(
         "rpc_error": rpc_error,
         "verifications": verifications,
         "verify_errors": verify_errors,
+        "removed_links": removed_links,
+        "link_errors": link_errors,
     }

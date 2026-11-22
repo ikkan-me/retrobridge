@@ -190,14 +190,39 @@ def build_cleanup_report(
     partial_bytes = _totals(partial)
     orphan_bytes = _totals(orphans)
     games_to_purge = list(purge.values())
+    stale_resume = audit.get("stale_resume", [])
+    orphan_library = audit.get("orphan_library", [])
+    library_removable = [
+        item
+        for item in orphan_library
+        if item.get("download_exists") or item.get("is_symlink")
+    ]
+    library_only = [
+        item
+        for item in orphan_library
+        if not (item.get("download_exists") or item.get("is_symlink"))
+    ]
+    orphan_library_bytes = sum(int(item.get("bytes") or 0) for item in library_removable)
+    library_only_bytes = sum(int(item.get("bytes") or 0) for item in library_only)
 
     return {
-        "ok": not (games_to_purge or complete or partial or orphans),
+        "ok": not (
+            games_to_purge
+            or complete
+            or partial
+            or orphans
+            or stale_resume
+            or orphan_library
+        ),
         "audit_ok": audit["ok"],
         "refresh": refresh_info,
         "games_to_purge": games_to_purge,
         "missing_on_disk": audit["missing_on_disk"],
+        "stale_resume": stale_resume,
         "duplicate_paths": audit["duplicate_paths"],
+        "orphan_library": orphan_library,
+        "library_removable": library_removable,
+        "library_only": library_only,
         "complete_unwanted": complete,
         "partial_unwanted": partial,
         "orphan_files": orphans,
@@ -209,6 +234,11 @@ def build_cleanup_report(
             "partial_bytes": partial_bytes,
             "orphan_files": len(orphans),
             "orphan_bytes": orphan_bytes,
+            "stale_resume_files": len(stale_resume),
+            "orphan_library_files": len(library_removable),
+            "orphan_library_bytes": orphan_library_bytes,
+            "library_only_files": len(library_only),
+            "library_only_bytes": library_only_bytes,
             "reclaimable_bytes": complete_bytes + partial_bytes + orphan_bytes,
         },
     }
@@ -220,6 +250,7 @@ def apply_cleanup(
     include_complete: bool = True,
     include_partial: bool = True,
     include_orphans: bool = True,
+    include_library: bool = True,
     purge_games: bool = True,
 ) -> Dict[str, Any]:
     """Deletes the selected files then purges orphan games. Returns what was done."""
@@ -250,6 +281,21 @@ def apply_cleanup(
                     leftover.unlink()
         except OSError as exc:
             errors.append(f"{path}: {exc}")
+
+    if include_library:
+        for item in report.get("library_removable", report.get("orphan_library", [])):
+            path = Path(item["file"])
+            # Never delete the last copy: only remove a Library link when the
+            # Download file still exists, or when it is a symlink.
+            if not item.get("download_exists") and not item.get("is_symlink"):
+                errors.append(f"Library-only file kept (no Download copy): {path}")
+                continue
+            try:
+                if path.is_file() or path.is_symlink():
+                    path.unlink()
+                    deleted_files += 1
+            except OSError as exc:
+                errors.append(f"{path}: {exc}")
 
     purged_games = 0
     if purge_games and report.get("games_to_purge"):
