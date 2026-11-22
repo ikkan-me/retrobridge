@@ -4,7 +4,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-RetroBridge automates the gap between raw game downloads and ready-to-play handhelds. It seamlessly links Transmission torrent packs to an organized local library via hard links, and syncs curated setups directly to your ES-DE, Knulli, or Batocera targets.
+RetroBridge automates the gap between raw game downloads and ready-to-play handhelds. It seamlessly links Transmission torrent packs to an organized local library via hard links, and syncs curated setups directly to your ES-DE, Knulli, or sd-cards.
 
 <p align="center">
   <img src="docs/retrobridge-status.png" alt="Example retrobridge status output: collection state, per-system completeness and active downloads" width="100%">
