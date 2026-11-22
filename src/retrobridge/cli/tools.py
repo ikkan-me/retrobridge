@@ -1,6 +1,7 @@
 import typer
 from typing import Optional
 from rich.console import Console
+from rich.markup import escape
 from pathlib import Path
 import json
 import shutil
@@ -68,13 +69,13 @@ def db_migrate(
     console.print(f"  • Systems renamed: {len(res['renamed'])}")
     console.print(f"  • Duplicates merged: {len(res['merged'])}")
     for item in res["renamed"]:
-        console.print(f"    [dim]-> {item['title']} : {item['from']} -> {item['to']}[/dim]")
+        console.print(f"    [dim]-> {escape(str(item['title']))} : {escape(str(item['from']))} -> {escape(str(item['to']))}[/dim]")
     for item in res["merged"]:
-        console.print(f"    [dim]-> {item['title']} : duplicate {item['dropped_id']} merged into {item['kept_id']}[/dim]")
+        console.print(f"    [dim]-> {escape(str(item['title']))} : duplicate {item['dropped_id']} merged into {item['kept_id']}[/dim]")
     if res["unresolved"]:
         console.print("[bold yellow]Unrecognized systems (fix manually):[/bold yellow]")
         for item in res["unresolved"]:
-            console.print(f"    [yellow]! {item['title']} ({item['system']})[/yellow]")
+            console.print(f"    [yellow]! {escape(str(item['title']))} ({escape(str(item['system']))})[/yellow]")
 
 
 @db_app.command("backup")
@@ -90,14 +91,14 @@ def db_backup(
         if as_json:
             typer.echo(json.dumps({"error": str(e)}))
         else:
-            console.print(f"[bold red]Error:[/bold red] {e}")
+            console.print(f"[bold red]Error:[/bold red] {escape(str(e))}")
         raise typer.Exit(code=1)
 
     if as_json:
         typer.echo(json.dumps({"backup": str(dest)}, indent=2, ensure_ascii=False))
         return
 
-    console.print(f"[bold green]Backup created:[/bold green] {dest}")
+    console.print(f"[bold green]Backup created:[/bold green] {escape(str(dest))}")
 
 @app.command("audit")
 def tools_audit(
@@ -122,7 +123,7 @@ def tools_audit(
                 ("missing_on_disk", "missing from disk"),
             ]:
                 for item in res[key][:10]:
-                    console.print(f"    [yellow]! {item['system']} | {item['title']} ({label})[/yellow]")
+                    console.print(f"    [yellow]! {escape(str(item['system']))} | {escape(str(item['title']))} ({escape(str(label))})[/yellow]")
 
     if not res["ok"]:
         raise typer.Exit(code=1)
@@ -141,7 +142,7 @@ def tools_apply(
         if as_json:
             typer.echo(json.dumps({"error": str(e)}))
         else:
-            console.print(f"[bold red]Error:[/bold red] {e}")
+            console.print(f"[bold red]Error:[/bold red] {escape(str(e))}")
         raise typer.Exit(code=1)
 
     if as_json:
@@ -154,7 +155,7 @@ def tools_apply(
     console.print(f"  • Files enabled: {res['files_wanted']}")
     console.print(f"  • Files unselected: {res['files_unwanted']}")
     for err in res["errors"]:
-        console.print(f"  [red]! {err}[/red]")
+        console.print(f"  [red]! {escape(str(err))}[/red]")
 
 
 @app.command("scan")
@@ -182,7 +183,7 @@ def tools_scan(
         if as_json:
             typer.echo(json.dumps({"error": str(e)}, ensure_ascii=False))
         elif not quiet:
-            console.print(f"[bold red]Error during scan:[/bold red] {e}")
+            console.print(f"[bold red]Error during scan:[/bold red] {escape(str(e))}")
         raise typer.Exit(code=1)
 
     if as_json:
@@ -236,7 +237,7 @@ def _torrent_action(torrent_id: int, action: str, dry_run: bool, as_json: bool) 
             if as_json:
                 typer.echo(json.dumps({"error": str(exc), "torrent_id": torrent_id}, ensure_ascii=False))
             else:
-                console.print(f"[bold red]Error:[/bold red] {exc}")
+                console.print(f"[bold red]Error:[/bold red] {escape(str(exc))}")
             raise typer.Exit(code=1)
 
     if as_json:
@@ -288,7 +289,7 @@ def tools_verify(
         if as_json:
             typer.echo(json.dumps({"error": str(exc)}, ensure_ascii=False))
         else:
-            console.print(f"[bold red]Transmission unreachable:[/bold red] {exc}")
+            console.print(f"[bold red]Transmission unreachable:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1)
 
     suspects = []
@@ -390,7 +391,7 @@ def tools_clean(
         if orphans:
             console.print(f"[yellow]Dry-run:[/yellow] {len(orphans)} orphan file(s) found.")
             for o in orphans:
-                console.print(f"  [dim]-> {o}[/dim]")
+                console.print(f"  [dim]-> {escape(str(o))}[/dim]")
             console.print("[dim]Rerun with --apply to delete.[/dim]")
         else:
             console.print("[dim]No orphan files found.[/dim]")
@@ -403,7 +404,7 @@ def tools_clean(
                 orphan.unlink()
                 deleted_count += 1
             except Exception as e:
-                console.print(f"[red]Error deleting {orphan}: {e}[/red]")
+                console.print(f"[red]Error deleting {escape(str(orphan))}: {escape(str(e))}[/red]")
         console.print(f"[green]Cleanup complete: {deleted_count} file(s) deleted.[/green]")
     else:
         console.print("[green]No orphan files found.[/green]")
@@ -422,7 +423,7 @@ def tools_relocate(
         if as_json:
             typer.echo(json.dumps({"dry_run": True, "torrent_id": torrent_id, "location": str(target)}))
         else:
-            console.print(f"[dim](DRY RUN)[/dim] Torrent {torrent_id} would be moved to {target}.")
+            console.print(f"[dim](DRY RUN)[/dim] Torrent {torrent_id} would be moved to {escape(str(target))}.")
         return
 
     try:
@@ -438,13 +439,13 @@ def tools_relocate(
         if as_json:
             typer.echo(json.dumps({"error": str(e), "torrent_id": torrent_id}))
         else:
-            console.print(f"[bold red]Error:[/bold red] {e}")
+            console.print(f"[bold red]Error:[/bold red] {escape(str(e))}")
         raise typer.Exit(code=1)
 
     if as_json:
         typer.echo(json.dumps({"torrent_id": torrent_id, "location": str(target)}, indent=2))
     else:
-        console.print(f"[bold green]Torrent {torrent_id} relocated to {target}.[/bold green]")
+        console.print(f"[bold green]Torrent {torrent_id} relocated to {escape(str(target))}.[/bold green]")
 
 @app.command("prepare-export")
 def tools_prepare_export(
@@ -470,7 +471,7 @@ def tools_prepare_export(
         if as_json:
             typer.echo(json.dumps({"error": str(e)}))
         else:
-            console.print(f"[bold red]Error:[/bold red] {e}")
+            console.print(f"[bold red]Error:[/bold red] {escape(str(e))}")
         raise typer.Exit(code=1)
 
     if as_json:
@@ -482,6 +483,6 @@ def tools_prepare_export(
     console.print(f"  • Profile: {result['profile']}")
     console.print(f"  • Files prepared: {result['prepared']}")
     console.print(f"  • Files skipped (direct copy): {result['skipped']}")
-    console.print(f"  • Staging: {result['staging_dir']}")
+    console.print(f"  • Staging: {escape(str(result['staging_dir']))}")
     for err in result["errors"]:
-        console.print(f"  [red]! {err}[/red]")
+        console.print(f"  [red]! {escape(str(err))}[/red]")

@@ -9,6 +9,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich import box
 from rich.text import Text
+from rich.markup import escape
 
 from retrobridge.services.catalog import list_games
 from retrobridge.services.status import get_system_status
@@ -111,7 +112,7 @@ def cmd_pack_add(
         if as_json:
             typer.echo(json.dumps({"error": str(e)}))
         else:
-            console.print(f"[bold red]Error while adding torrent:[/bold red] {e}")
+            console.print(f"[bold red]Error while adding torrent:[/bold red] {escape(str(e))}")
         raise typer.Exit(code=1)
 
     deselected = 0
@@ -119,7 +120,7 @@ def cmd_pack_add(
         try:
             deselected = client.select_nothing(torrent_id)
         except Exception as e:
-            console.print(f"[yellow]Warning: unable to deselect files:[/yellow] {e}")
+            console.print(f"[yellow]Warning: unable to deselect files:[/yellow] {escape(str(e))}")
 
     res = {
         "torrent_id": torrent_id,
@@ -529,7 +530,7 @@ def cmd_status(
                         f"in {refresh_info['duration_ms']} ms."
                     )
                     for err in sync_res["errors"]:
-                        console.print(f"  [yellow]! {err}[/yellow]")
+                        console.print(f"  [yellow]! {escape(str(err))}[/yellow]")
             except Exception as e:
                 # An already running sync (lock) or unreachable Transmission must
                 # never prevent status from displaying.
@@ -540,7 +541,7 @@ def cmd_status(
                     "error": str(e),
                 }
                 if not as_json:
-                    console.print(f"[yellow]Auto-sync failed:[/yellow] {e}")
+                    console.print(f"[yellow]Auto-sync failed:[/yellow] {escape(str(e))}")
 
     status = get_system_status(db_path=db_path, live=not no_live)
     if refresh_info is not None:
@@ -770,7 +771,7 @@ def cmd_sync(
     if res["errors"]:
         console.print("[bold red]Errors:[/bold red]")
         for err in res["errors"]:
-            console.print(f"    [red]! {err}[/red]")
+            console.print(f"    [red]! {escape(str(err))}[/red]")
 
 @app.command("remove")
 def cmd_remove(
@@ -781,7 +782,7 @@ def cmd_remove(
     """Mark a game for asynchronous removal (Transmission, Library, Downloads, Targets)."""
     actions = request_removal(title=title, system=system, db_path=db_path)
     if not actions:
-        console.print(f"[yellow]No game found matching '{title}'.[/yellow]")
+        console.print(f"[yellow]No game found matching '{escape(str(title))}'.[/yellow]")
         return
     console.print(f"[bold green]Game marked for removal ({len(actions)} game(s)).[/bold green]")
     console.print("[dim]Local files will be cleaned up on the next 'sync', targets on the next 'export'.[/dim]")
@@ -794,9 +795,9 @@ def cmd_pin(
 ):
     """Pin the selected game file for a game."""
     if set_game_pin(title=title, system=system, pinned=True, db_path=db_path):
-        console.print(f"[bold green]Game '{title}' pinned.[/bold green]")
+        console.print(f"[bold green]Game '{escape(str(title))}' pinned.[/bold green]")
     else:
-        console.print(f"[red]Game '{title}' not found.[/red]")
+        console.print(f"[red]Game '{escape(str(title))}' not found.[/red]")
 
 @app.command("unpin")
 def cmd_unpin(
@@ -806,9 +807,9 @@ def cmd_unpin(
 ):
     """Unpin the selected game file for a game."""
     if set_game_pin(title=title, system=system, pinned=False, db_path=db_path):
-        console.print(f"[bold green]Game '{title}' unpinned.[/bold green]")
+        console.print(f"[bold green]Game '{escape(str(title))}' unpinned.[/bold green]")
     else:
-        console.print(f"[red]Game '{title}' not found.[/red]")
+        console.print(f"[red]Game '{escape(str(title))}' not found.[/red]")
 
 @app.command("find")
 def cmd_find(
@@ -843,7 +844,7 @@ def cmd_find(
     except Exception as exc:
         refresh_info = {"ran": False, "error": str(exc)}
         if not as_json:
-            console.print(f"[yellow]Refresh failed:[/yellow] {exc}")
+            console.print(f"[yellow]Refresh failed:[/yellow] {escape(str(exc))}")
 
     if not as_json and refresh_info.get("ran"):
         console.print(
@@ -863,8 +864,8 @@ def cmd_find(
         if as_json:
             typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
             return
-        console.print(f"[bold green]Already present:[/bold green] {existing['title']} ({existing['state']})")
-        console.print(f"  Game file: {basename(existing.get('matched_file_name'))}")
+        console.print(f"[bold green]Already present:[/bold green] {escape(str(existing['title']))} ({existing['state']})")
+        console.print(f"  Game file: {escape(basename(existing.get('matched_file_name')) or '')}")
         console.print("[dim]Use --update to change the selected game file.[/dim]")
         return
 
@@ -874,7 +875,7 @@ def cmd_find(
         if as_json:
             typer.echo(json.dumps({"error": message, "refresh": refresh_info}, ensure_ascii=False))
         else:
-            console.print(f"[bold red]Error:[/bold red] {message}")
+            console.print(f"[bold red]Error:[/bold red] {escape(str(message))}")
         raise typer.Exit(code=1)
 
     shown = candidates[:limit]
@@ -922,7 +923,7 @@ def cmd_find(
             if as_json:
                 typer.echo(json.dumps({"error": message, "candidate": selected}, ensure_ascii=False))
             else:
-                console.print(f"[bold red]Error:[/bold red] {message}")
+                console.print(f"[bold red]Error:[/bold red] {escape(str(message))}")
             raise typer.Exit(code=1)
         if len(candidates) > 1:
             tie = next(
@@ -940,7 +941,7 @@ def cmd_find(
                 if as_json:
                     typer.echo(json.dumps({"error": message, "candidates": [selected, tie]}, ensure_ascii=False))
                 else:
-                    console.print(f"[bold red]Error:[/bold red] {message}")
+                    console.print(f"[bold red]Error:[/bold red] {escape(str(message))}")
                 raise typer.Exit(code=1)
     else:
         choice = typer.prompt("Candidate number to add (q = cancel)", default="1")
@@ -950,7 +951,7 @@ def cmd_find(
             return
         index = int(choice)
         if not 1 <= index <= len(shown):
-            console.print(f"[bold red]Error:[/bold red] Invalid selection '{choice}'.")
+            console.print(f"[bold red]Error:[/bold red] Invalid selection '{escape(str(choice))}'.")
             raise typer.Exit(code=1)
         selected = shown[index - 1]
 
@@ -959,23 +960,23 @@ def cmd_find(
         if as_json:
             typer.echo(json.dumps({"error": message, "candidate": selected}, ensure_ascii=False))
         else:
-            console.print(f"[bold red]Error:[/bold red] {message}")
+            console.print(f"[bold red]Error:[/bold red] {escape(str(message))}")
         raise typer.Exit(code=1)
 
     discs = expand_disc_candidates(selected, system, config=cfg, db_path=db_path)
     if not as_json and len(discs) > 1:
         console.print(f"[bold]Multi-disc:[/bold] {len(discs)} discs will be selected.")
         for item in discs:
-            console.print(f"  • {basename(item['file_name'])}")
+            console.print(f"  • {escape(basename(item['file_name']) or '')}")
 
     if dry_run:
         if as_json:
             typer.echo(json.dumps({"dry_run": True, "candidate": selected, "discs": discs, "existing": existing, "refresh": refresh_info}, indent=2, ensure_ascii=False))
         elif len(discs) > 1:
-            console.print(f"[bold]Simulated add:[/bold] {query} ({len(discs)} discs)")
+            console.print(f"[bold]Simulated add:[/bold] {escape(str(query))} ({len(discs)} discs)")
         else:
             rom_display = selected["file_name"] if full_path else basename(selected["file_name"])
-            console.print(f"[bold]Simulated add:[/bold] {rom_display}")
+            console.print(f"[bold]Simulated add:[/bold] {escape(str(rom_display))}")
         return
 
     title = existing["title"] if existing else query
@@ -991,7 +992,7 @@ def cmd_find(
         if as_json:
             typer.echo(json.dumps({"error": str(exc)}, ensure_ascii=False))
         else:
-            console.print(f"[bold red]Error:[/bold red] {exc}")
+            console.print(f"[bold red]Error:[/bold red] {escape(str(exc))}")
         raise typer.Exit(code=1)
 
     if as_json:
@@ -1003,8 +1004,8 @@ def cmd_find(
         }, indent=2, ensure_ascii=False))
         return
 
-    console.print(f"[bold green]Game added:[/bold green] [bold white]{result['title']}[/bold white] ({result['system']})")
-    console.print(f"  • Selected game file: {basename(result['matched_file'])}")
+    console.print(f"[bold green]Game added:[/bold green] [bold white]{escape(str(result['title']))}[/bold white] ({result['system']})")
+    console.print(f"  • Selected game file: {escape(basename(result['matched_file']) or '')}")
     console.print(f"  • Score: {result['score']} ({result['lang_label']}) - {result['size_mb']} MB")
     if result.get("discs", 1) > 1:
         console.print(f"  • Selected discs: {result['discs']}")
@@ -1035,7 +1036,7 @@ def cmd_search(
         return
 
     if not candidates:
-        console.print(f"[yellow]No matching file found for '{query}' in the packs.[/yellow]")
+        console.print(f"[yellow]No matching file found for '{escape(str(query))}' in the packs.[/yellow]")
         return
 
     table = Table(title=f"Candidates found ({len(candidates)}) for '{query}'")
@@ -1098,15 +1099,15 @@ def cmd_add(
         if as_json:
             typer.echo(json.dumps({"error": str(e)}))
         else:
-            console.print(f"[bold red]Error:[/bold red] {e}")
+            console.print(f"[bold red]Error:[/bold red] {escape(str(e))}")
         raise typer.Exit(code=1)
 
     if as_json:
         typer.echo(json.dumps(res, indent=2, ensure_ascii=False))
         return
 
-    console.print(f"[bold green]Game added:[/bold green] [bold white]{res['title']}[/bold white] ({res['system']})")
-    console.print(f"  • Selected game file: {basename(res['matched_file'])}")
+    console.print(f"[bold green]Game added:[/bold green] [bold white]{escape(str(res['title']))}[/bold white] ({res['system']})")
+    console.print(f"  • Selected game file: {escape(basename(res['matched_file']) or '')}")
     console.print(f"  • Score: {res['score']} ({res['lang_label']}) - {res['size_mb']} MB")
     if res.get("discs", 1) > 1:
         console.print(f"  • Selected discs: {res['discs']}")
@@ -1144,7 +1145,7 @@ def cmd_export(
         if as_json:
             typer.echo(json.dumps({"error": str(e)}))
         elif not quiet:
-            console.print(f"[bold red]Export error:[/bold red] {e}")
+            console.print(f"[bold red]Export error:[/bold red] {escape(str(e))}")
         raise typer.Exit(code=1)
 
     if as_json:
@@ -1166,11 +1167,11 @@ def cmd_export(
             "[dim](not deleted)[/dim]"
         )
         for item in extra[:20]:
-            console.print(f"  [dim]• {item['system']} : {item['file']}[/dim]")
+            console.print(f"  [dim]• {escape(str(item['system']))} : {escape(str(item['file']))}[/dim]")
         if len(extra) > 20:
             console.print(f"  [dim]... and {len(extra) - 20} more.[/dim]")
 
     if res["errors"]:
         console.print("[bold red]Errors encountered:[/bold red]")
         for err in res["errors"]:
-            console.print(f"  [red]! {err}[/red]")
+            console.print(f"  [red]! {escape(str(err))}[/red]")

@@ -1,4 +1,5 @@
 import shutil
+import tempfile
 import zipfile
 from pathlib import Path
 from typing import Dict, Any, Optional
@@ -12,20 +13,42 @@ from retrobridge.domain.tiers import get_tier_systems
 from retrobridge.domain.target import ensure_target_uuid
 from retrobridge.domain.multidisc import extract_disc_number, get_disc_family, generate_m3u_content
 from retrobridge.domain.systems import normalize_system
-from retrobridge.adapters.compress import get_staging_dir, extract_from_archive, convert_to_chd, convert_to_rvz
+from retrobridge.adapters.compress import (
+    get_staging_dir,
+    extract_from_archive,
+    extract_disc_set,
+    convert_to_chd,
+    convert_to_rvz,
+)
 
 class ExportError(Exception):
     pass
 
 
+def _discard_staging(paths: list) -> None:
+    """Removes intermediate staging files and unpack directories."""
+    for path in paths:
+        if not path:
+            continue
+        try:
+            if path.is_dir():
+                shutil.rmtree(path, ignore_errors=True)
+            else:
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def _unpack_if_archive(src: Path, staging_dir: Path, sys_prof, tmp_files: list) -> Path:
-    """Extracts a zip archive into staging before conversion (chd/rvz)."""
+    """Extracts a zip archive into staging before conversion (chd/rvz).
+
+    The whole disc image is extracted (`.cue` + `.bin` tracks): chdman
+    cannot convert a `.cue` whose tracks are still inside the archive.
+    """
     if zipfile.is_zipfile(src):
-        extracted = extract_from_archive(
-            src, staging_dir, sys_prof.extensions if sys_prof else None
-        )
-        tmp_files.append(extracted)
-        return extracted
+        work_dir = Path(tempfile.mkdtemp(prefix="unpack-", dir=staging_dir))
+        tmp_files.append(work_dir)
+        return extract_disc_set(src, work_dir)
     return src
 
 def export_to_target(
@@ -242,12 +265,7 @@ def export_to_target(
                 except Exception as e:
                     errors.append(f"Error exporting {g['title']}: {e}")
                 finally:
-                    for tmp_file in tmp_staging_files:
-                        if tmp_file and tmp_file.exists():
-                            try:
-                                tmp_file.unlink()
-                            except OSError:
-                                pass
+                    _discard_staging(tmp_staging_files)
 
             # 6. Generate .m3u files on target
             if not dry_run:
@@ -371,9 +389,7 @@ def prepare_export(
                 finally:
                     # Extracted archives are only intermediate files;
                     # the final converted file stays in staging.
-                    for tmp_file in tmp_files:
-                        if tmp_file.exists():
-                            tmp_file.unlink(missing_ok=True)
+                    _discard_staging(tmp_files)
 
     return {
         "profile": profile_name,

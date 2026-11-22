@@ -7,6 +7,22 @@ from typing import Optional
 class CompressionError(Exception):
     pass
 
+
+# A truncated or malformed disc image can make chdman loop forever instead of
+# failing: never let a single conversion block the whole export.
+CONVERSION_TIMEOUT_S = 900
+
+
+def _run_conversion(args: list[str], what: str, source: Path) -> subprocess.CompletedProcess:
+    try:
+        return subprocess.run(args, capture_output=True, text=True, timeout=CONVERSION_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        raise CompressionError(
+            f"{what} timed out after {CONVERSION_TIMEOUT_S}s on {source.name} "
+            "(corrupt or truncated image?)"
+        )
+
+
 def get_staging_dir(custom_path: Optional[Path] = None) -> Path:
     p = custom_path or Path("/tmp/retrobridge/staging")
     p.mkdir(parents=True, exist_ok=True)
@@ -41,6 +57,64 @@ def extract_from_archive(archive_path: Path, dest_dir: Path, target_extensions: 
             shutil.copyfileobj(src, dst)
         return extracted_path
 
+
+# Members of a single disc image. A `.cue` or `.gdi` is useless without the
+# track files it references, so the whole set must be extracted together.
+DISC_SET_MEMBERS = (
+    ".cue", ".bin", ".img", ".sub", ".ccd", ".gdi",
+    ".iso", ".chd", ".m3u", ".pbp",
+)
+
+# When a set offers several entry points, prefer the richest container.
+DISC_ENTRY_PRIORITY = (".m3u", ".cue", ".gdi", ".chd", ".iso", ".img", ".bin", ".pbp")
+
+
+def _safe_member_path(root: Path, member: str) -> Optional[Path]:
+    """Resolves an archive member under `root`, rejecting path traversal."""
+    target = (root / member).resolve()
+    try:
+        target.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return target
+
+
+def extract_disc_set(archive_path: Path, dest_dir: Path) -> Path:
+    """Extracts a whole disc image (cue + bin tracks, gdi + tracks, iso...).
+
+    Returns the file chdman should convert (the `.cue`/`.gdi`/`.iso`...).
+    """
+    if not zipfile.is_zipfile(archive_path):
+        raise CompressionError(f"File is not a valid zip: {archive_path}")
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    extracted: list[Path] = []
+    with zipfile.ZipFile(archive_path, 'r') as zf:
+        for member in zf.namelist():
+            if member.endswith('/'):
+                continue
+            if Path(member).suffix.lower() not in DISC_SET_MEMBERS:
+                continue
+            target = _safe_member_path(dest_dir, member)
+            if target is None:
+                continue
+            # Keep the archive's relative layout: a `.cue` references its
+            # tracks by the same relative names.
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with zf.open(member) as src, open(target, 'wb') as dst:
+                shutil.copyfileobj(src, dst)
+            extracted.append(target)
+
+    if not extracted:
+        raise CompressionError(f"No disc image found in {archive_path.name}")
+
+    def rank(path: Path) -> int:
+        suffix = path.suffix.lower()
+        return DISC_ENTRY_PRIORITY.index(suffix) if suffix in DISC_ENTRY_PRIORITY else len(DISC_ENTRY_PRIORITY)
+
+    return sorted(extracted, key=rank)[0]
+
+
 def convert_to_chd(source_path: Path, output_chd_path: Path, is_dvd: bool = False) -> Path:
     """Converts a disc image (cue/bin, iso, gdi) to CHD via chdman in the working directory."""
     chdman = shutil.which("chdman")
@@ -53,12 +127,14 @@ def convert_to_chd(source_path: Path, output_chd_path: Path, is_dvd: bool = Fals
         args.extend(["-hs", "2048"])
 
     output_chd_path.parent.mkdir(parents=True, exist_ok=True)
-    res = subprocess.run(args, capture_output=True, text=True)
+    res = _run_conversion(args, "chdman conversion", source_path)
     if res.returncode != 0:
         raise CompressionError(f"chdman conversion failed: {res.stderr or res.stdout}")
 
     # Check
-    verify_res = subprocess.run([chdman, "verify", "-i", str(output_chd_path)], capture_output=True, text=True)
+    verify_res = _run_conversion(
+        [chdman, "verify", "-i", str(output_chd_path)], "chdman verify", source_path
+    )
     if verify_res.returncode != 0:
         if output_chd_path.exists():
             output_chd_path.unlink()
@@ -74,7 +150,7 @@ def convert_to_rvz(source_path: Path, output_rvz_path: Path) -> Path:
 
     output_rvz_path.parent.mkdir(parents=True, exist_ok=True)
     args = [dolphin_tool, "convert", "-i", str(source_path), "-o", str(output_rvz_path), "--format=rvz"]
-    res = subprocess.run(args, capture_output=True, text=True)
+    res = _run_conversion(args, "dolphin-tool conversion", source_path)
     if res.returncode != 0:
         raise CompressionError(f"dolphin-tool convert failed: {res.stderr or res.stdout}")
 

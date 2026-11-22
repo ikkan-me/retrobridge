@@ -29,3 +29,10 @@ and the project uses [Semantic Versioning](https://semver.org/).
   (`list`, `find`, `pin`, `unpin`, `remove`), and legacy pack paths are no
   longer mistaken for Mega Drive (`.../Sony - PlayStation Portable/Sega
   Genesis Collection.zip`, `Neon Genesis`, `Operation Genesis`).
+- Export of disc images: the whole disc set is extracted before conversion
+  (`cue` + all `bin` tracks, `gdi` + tracks), so PSX/Saturn/CD games are
+  converted instead of failing on a missing track.
+- Export errors and file paths containing `[...]` no longer crash the CLI
+  (they were parsed as Rich markup) and no longer leave staging files behind.
+- Disc conversion has a timeout: a corrupt image can make `chdman` loop
+  forever, which used to hang the export indefinitely.
