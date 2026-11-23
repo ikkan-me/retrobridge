@@ -48,6 +48,10 @@ class PathsConfig:
     download_dir: Path = Path("/tmp/retrobridge/downloads")
     library_dir: Path = Path("/tmp/retrobridge/library")
     data_dir: Path = DEFAULT_DATA_DIR
+    # Where archive extraction and chd/rvz conversion happen. Must hold the
+    # unpacked image plus the converted file (a DVD image needs ~13 GB), so it
+    # must be a real disk, never a tmpfs. None = data_dir/staging.
+    staging_dir: Optional[Path] = None
 
 @dataclass
 class TargetConfig:
@@ -138,10 +142,12 @@ def load_config(config_path: Optional[str] = None) -> Config:
         data = tomllib.load(f)
 
     paths_data = data.get("paths", {})
+    staging = paths_data.get("staging_dir")
     paths = PathsConfig(
         download_dir=Path(paths_data.get("download_dir", "/tmp/retrobridge/downloads")),
         library_dir=Path(paths_data.get("library_dir", "/tmp/retrobridge/library")),
-        data_dir=Path(paths_data.get("data_dir", str(DEFAULT_DATA_DIR)))
+        data_dir=Path(paths_data.get("data_dir", str(DEFAULT_DATA_DIR))),
+        staging_dir=Path(staging) if staging else None
     )
 
     t_data = data.get("transmission", {})
@@ -186,12 +192,16 @@ def save_config(config: Config, config_path: Optional[str] = None) -> None:
     p = get_config_path(config_path)
     p.parent.mkdir(parents=True, exist_ok=True)
 
+    paths_data: Dict[str, Any] = {
+        "download_dir": str(config.paths.download_dir),
+        "library_dir": str(config.paths.library_dir),
+        "data_dir": str(config.paths.data_dir),
+    }
+    if config.paths.staging_dir:
+        paths_data["staging_dir"] = str(config.paths.staging_dir)
+
     data: Dict[str, Any] = {
-        "paths": {
-            "download_dir": str(config.paths.download_dir),
-            "library_dir": str(config.paths.library_dir),
-            "data_dir": str(config.paths.data_dir),
-        },
+        "paths": paths_data,
         "transmission": {
             "host": config.transmission.host,
             "port": config.transmission.port,

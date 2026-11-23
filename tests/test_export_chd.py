@@ -366,6 +366,103 @@ def test_export_cli_renders_the_plan_like_status(tmp_path: Path, monkeypatch):
     assert "… and" not in result.stdout
 
 
+def test_staging_defaults_to_data_dir_not_tmp(tmp_path: Path):
+    cfg, _ = _export_fixture(tmp_path)
+
+    # Default: under data_dir (a real disk), never /tmp (tmpfs).
+    assert export_module._staging_root(cfg) == tmp_path / "staging"
+
+    # Explicit override wins.
+    moved = tmp_path / "big-disk" / "staging"
+    cfg.paths.staging_dir = moved
+    assert export_module._staging_root(cfg) == moved
+
+
+def test_export_converts_inside_the_configured_staging(tmp_path: Path, monkeypatch):
+    cfg, db_path = _export_fixture(tmp_path)
+    monkeypatch.setattr(
+        export_module, "convert_to_chd", lambda source, output, is_dvd=False: _write(output)
+    )
+
+    export_module.export_to_target("sd", system="psx", config=cfg, db_path=db_path)
+
+    staging = tmp_path / "staging"
+    assert staging.is_dir()
+    assert list(staging.iterdir()) == []
+
+
+def test_partial_conversion_output_is_removed_from_staging(tmp_path: Path, monkeypatch):
+    cfg, db_path = _export_fixture(tmp_path)
+
+    def failing_convert(source, output, is_dvd=False):
+        # chdman leaves a partial file behind, then fails.
+        output.write_bytes(b"partial")
+        raise compress.CompressionError("CHD error occurred (main): Disk quota exceeded")
+
+    monkeypatch.setattr(export_module, "convert_to_chd", failing_convert)
+
+    res = export_module.export_to_target("sd", system="psx", config=cfg, db_path=db_path)
+
+    assert res["exported"] == 0
+    assert res["errors"] and "Disk quota exceeded" in res["errors"][0]
+    # No leftover: neither the unpack directory nor the partial .chd.
+    assert list((tmp_path / "staging").iterdir()) == []
+
+
+def test_insufficient_staging_space_is_reported_before_converting(tmp_path: Path, monkeypatch):
+    cfg, db_path = _export_fixture(tmp_path)
+    monkeypatch.setattr(export_module, "_staging_needed", lambda src: 10 ** 15)
+    called = []
+    monkeypatch.setattr(
+        export_module, "convert_to_chd",
+        lambda source, output, is_dvd=False: called.append(output) or _write(output),
+    )
+
+    res = export_module.export_to_target("sd", system="psx", config=cfg, db_path=db_path)
+
+    assert res["exported"] == 0
+    assert called == []  # conversion never started
+    assert any("staging" in err and "staging_dir" in err for err in res["errors"])
+
+
+def test_tool_output_is_summarized(tmp_path: Path):
+    log = (
+        "Compressing, 12.9% complete... (ratio=79.3%)\n"
+        "Compressing, 13.0% complete... (ratio=79.3%)\n" * 4
+        + "CHD error occurred (main): Disk quota exceeded\n"
+        "Fatal error occurred: 1\n"
+    )
+
+    summary = compress._summarize_tool_output(log)
+
+    assert "Disk quota exceeded" in summary
+    assert "Fatal error occurred" in summary
+    assert "Compressing" not in summary
+    assert len(summary) <= 240
+
+
+def test_export_purges_stale_staging_at_start(tmp_path: Path, monkeypatch):
+    cfg, db_path = _export_fixture(tmp_path)
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    # Leftovers from a killed run: a partial chd and an unpack directory.
+    (staging / "Some Game.chd").write_bytes(b"partial")
+    (staging / "unpack-old").mkdir()
+    (staging / "unpack-old" / "track.bin").write_bytes(b"x")
+    # `prepare-export` must survive.
+    (staging / "prepare-export").mkdir()
+    monkeypatch.setattr(
+        export_module, "convert_to_chd", lambda source, output, is_dvd=False: _write(output)
+    )
+
+    export_module.export_to_target("sd", system="psx", config=cfg, db_path=db_path)
+
+    assert not (staging / "Some Game.chd").exists()
+    assert not (staging / "unpack-old").exists()
+    assert (staging / "prepare-export").is_dir()
+    assert list(staging.iterdir()) == [staging / "prepare-export"]
+
+
 def test_export_cli_reports_bracketed_errors_without_markup_crash(monkeypatch):
     def fake_export(**kwargs):
         return {

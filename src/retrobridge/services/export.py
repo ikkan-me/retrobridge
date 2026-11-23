@@ -37,6 +37,53 @@ CARD_NOISE_EXTENSIONS = {
 }
 
 
+def _purge_staging(staging_dir: Path) -> None:
+    """Removes leftovers from a previous, interrupted run.
+
+    Called while the export lock is held, so anything still there is stale:
+    a killed run cannot clean up after itself. `prepare-export` is kept.
+    """
+    for entry in sorted(staging_dir.iterdir()):
+        if entry.name == "prepare-export":
+            continue
+        try:
+            if entry.is_dir():
+                shutil.rmtree(entry, ignore_errors=True)
+            else:
+                entry.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
+def _gb(value: int) -> str:
+    return f"{value / 1024 ** 3:.1f} GB"
+
+
+def _staging_root(cfg: Config) -> Path:
+    """Disk-backed staging root.
+
+    Extracting a DVD image + converting it needs ~13 GB, so staging must never
+    be a tmpfs (`/tmp` on most systems). It defaults to `data_dir/staging` and
+    can be moved with `[paths] staging_dir`.
+    """
+    if cfg.paths.staging_dir:
+        return Path(cfg.paths.staging_dir)
+    return Path(cfg.paths.data_dir) / "staging"
+
+
+def _staging_needed(src: Path) -> int:
+    """Rough bytes the staging directory must hold for this source."""
+    try:
+        if zipfile.is_zipfile(src):
+            with zipfile.ZipFile(src) as zf:
+                unpacked = sum(info.file_size for info in zf.infolist() if not info.is_dir())
+            # Unpacked image + room for the converted output.
+            return unpacked + unpacked // 2
+    except (OSError, zipfile.BadZipFile):
+        pass
+    return src.stat().st_size * 2
+
+
 def _copy_with_progress(
     src: Path, dst: Path, on_bytes: Optional[Callable[[int, int], None]] = None
 ) -> Path:
@@ -127,7 +174,7 @@ def export_to_target(
     # 1. Identify the target card (.retrobridge-target)
     target_uuid = ensure_target_uuid(mount_path, target_cfg.uuid, name=target_name, profile=target_cfg.profile)
     profile = load_profile(target_cfg.profile)
-    staging_dir = get_staging_dir()
+    staging_dir = get_staging_dir(_staging_root(cfg))
 
     allowed_systems = get_tier_systems(tier) if tier else None
 
@@ -166,6 +213,8 @@ def export_to_target(
     skipped_files = 0
 
     with file_lock(cfg.paths.data_dir):
+        # Anything left in staging comes from a killed run: reclaim it now.
+        _purge_staging(staging_dir)
         with get_db_connection(db_path) as conn:
             backfill_game_files(conn)
             cur = conn.cursor()
@@ -355,6 +404,16 @@ def export_to_target(
                                 emit({"event": "phase", "phase": "copy"})
                                 _copy_with_progress(src, dest, on_bytes)
                             else:
+                                needed = _staging_needed(src)
+                                free_staging = shutil.disk_usage(staging_dir).free
+                                if free_staging < needed:
+                                    errors.append(
+                                        f"Not enough space in staging ({staging_dir}) for {game['title']}: "
+                                        f"{_gb(free_staging)} free, about {_gb(needed)} needed. "
+                                        "Set [paths] staging_dir to a bigger disk."
+                                    )
+                                    continue
+                                emit({"event": "phase", "phase": "extract"})
                                 work_src = _unpack_if_archive(
                                     src, staging_dir, sys_prof, tmp_staging_files
                                 )
@@ -366,12 +425,14 @@ def export_to_target(
                                 else:
                                     emit({"event": "phase", "phase": "convert"})
                                     tmp_out = staging_dir / (src.stem + f".{rule}")
+                                    # Registered before converting: a failed or
+                                    # killed run must not leave a partial file.
+                                    tmp_staging_files.append(tmp_out)
                                     if rule == "chd":
                                         is_dvd = normalize_system(game["system"]).lower() in ("ps2", "psp")
                                         convert_to_chd(work_src, tmp_out, is_dvd=is_dvd)
                                     else:
                                         convert_to_rvz(work_src, tmp_out)
-                                    tmp_staging_files.append(tmp_out)
                                     emit({"event": "phase", "phase": "copy"})
                                     _copy_with_progress(tmp_out, dest, on_bytes)
                         else:
@@ -493,7 +554,7 @@ def prepare_export(
     """Converts game files in the local staging, without writing to a target card."""
     cfg = config or load_config()
     profile = load_profile(profile_name)
-    staging_root = get_staging_dir() / "prepare-export"
+    staging_root = get_staging_dir(_staging_root(cfg)) / "prepare-export"
 
     allowed_systems = get_tier_systems(tier) if tier else None
     prepared = 0

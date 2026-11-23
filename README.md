@@ -64,6 +64,11 @@ The file is generated automatically and can be edited freely:
 download_dir = "/mnt/hdd-data/RetroGaming/Download"
 library_dir  = "/mnt/hdd-data/RetroGaming/Library"
 data_dir     = "~/.local/share/retrobridge"
+# staging_dir = "~/.local/share/retrobridge/staging"
+#   where archives are unpacked and converted before being copied to a card.
+#   Defaults to data_dir/staging. It must be a real disk: a DVD image needs
+#   the unpacked image plus its .chd at the same time (~13 GB), so never point
+#   it at /tmp on a tmpfs.
 
 [transmission]
 host = "127.0.0.1"

@@ -244,7 +244,7 @@ def test_prepare_export_stages_without_target(tmp_path: Path, monkeypatch):
         conn.commit()
 
     staging = tmp_path / "staging"
-    monkeypatch.setattr(export_module, "get_staging_dir", lambda: staging)
+    monkeypatch.setattr(export_module, "get_staging_dir", lambda custom_path=None: staging)
 
     cfg = Config(paths=PathsConfig(download_dir=dl_dir, library_dir=tmp_path / "lib", data_dir=tmp_path))
 

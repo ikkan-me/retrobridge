@@ -1,3 +1,4 @@
+import re
 import shutil
 import subprocess
 import zipfile
@@ -11,6 +12,25 @@ class CompressionError(Exception):
 # A truncated or malformed disc image can make chdman loop forever instead of
 # failing: never let a single conversion block the whole export.
 CONVERSION_TIMEOUT_S = 900
+
+
+def _summarize_tool_output(text: str, limit: int = 240) -> str:
+    """Keeps the meaningful lines of a chdman/dolphin-tool output.
+
+    These tools print one progress line per step ("Compressing, 13.0%
+    complete..."); the actual cause is on the ERROR/Fatal line. Reporting the
+    whole log buries the message and floods the terminal.
+    """
+    lines = [line.strip() for line in (text or "").splitlines() if line.strip()]
+    if not lines:
+        return "no output"
+    important = [
+        line for line in lines
+        if re.search(r"error|fatal|fail|invalid|cannot|unable|missing|quota|denied", line, re.IGNORECASE)
+    ]
+    picked = important[-3:] if important else lines[-2:]
+    summary = " | ".join(picked)
+    return summary if len(summary) <= limit else summary[: limit - 1] + "…"
 
 
 def _run_conversion(args: list[str], what: str, source: Path) -> subprocess.CompletedProcess:
@@ -129,7 +149,10 @@ def convert_to_chd(source_path: Path, output_chd_path: Path, is_dvd: bool = Fals
     output_chd_path.parent.mkdir(parents=True, exist_ok=True)
     res = _run_conversion(args, "chdman conversion", source_path)
     if res.returncode != 0:
-        raise CompressionError(f"chdman conversion failed: {res.stderr or res.stdout}")
+        raise CompressionError(
+            "chdman conversion failed: "
+            + _summarize_tool_output(res.stderr + "\n" + res.stdout)
+        )
 
     # Check
     verify_res = _run_conversion(
@@ -138,7 +161,10 @@ def convert_to_chd(source_path: Path, output_chd_path: Path, is_dvd: bool = Fals
     if verify_res.returncode != 0:
         if output_chd_path.exists():
             output_chd_path.unlink()
-        raise CompressionError(f"chdman verify check failed: {verify_res.stderr or verify_res.stdout}")
+        raise CompressionError(
+            "chdman verify check failed: "
+            + _summarize_tool_output(verify_res.stderr + "\n" + verify_res.stdout)
+        )
 
     return output_chd_path
 
@@ -152,6 +178,9 @@ def convert_to_rvz(source_path: Path, output_rvz_path: Path) -> Path:
     args = [dolphin_tool, "convert", "-i", str(source_path), "-o", str(output_rvz_path), "--format=rvz"]
     res = _run_conversion(args, "dolphin-tool conversion", source_path)
     if res.returncode != 0:
-        raise CompressionError(f"dolphin-tool convert failed: {res.stderr or res.stdout}")
+        raise CompressionError(
+            "dolphin-tool convert failed: "
+            + _summarize_tool_output(res.stderr + "\n" + res.stdout)
+        )
 
     return output_rvz_path

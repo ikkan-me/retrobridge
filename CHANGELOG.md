@@ -23,10 +23,20 @@ and the project uses [Semantic Versioning](https://semver.org/).
 - Export reconciles the card by expected name + size, so a card filled by an
   earlier tool is not re-converted from scratch.
 - New `--no-warn` flag silences the "still downloading" notice.
+- `[paths] staging_dir` moves extraction/conversion staging (defaults to
+  `data_dir/staging`).
 - First stable release: pack import, scored selection, hard links, SD export.
 
 ### Fixed
 
+- DVD-sized images (PS2) no longer fail with `Disk quota exceeded`: staging
+  used `/tmp` (a RAM-backed tmpfs) and could not hold an unpacked DVD plus its
+  `.chd`. Staging now lives on a real disk (`data_dir/staging`) and reports an
+  actionable error when it is too small.
+- A partial `.chd`/`.rvz` left behind by a failed or killed conversion is
+  removed, and leftovers in staging are purged at the start of the next export.
+- Conversion errors now show the actual cause instead of the whole `chdman`
+  progress log.
 - Card metadata (`systeminfo.txt`, `gamelist.xml`, images…) is no longer
   reported as unmanaged files.
 - Export prints a clean message instead of a traceback when another
